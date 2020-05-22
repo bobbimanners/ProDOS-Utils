@@ -80,15 +80,9 @@ TODO
 
 TODO
 
-### Understading the Display
+### Understanding the Display
 
 ![](/Screenshots/Running.png)
-
-TODO
-
-### Command Line Options
-
-![](/Screenshots/BASIC_Launch.png)
 
 TODO
 
