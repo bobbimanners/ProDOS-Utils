@@ -35,10 +35,9 @@ ProDOS 2.5 disk image which includes `SORTDIR.SYSTEM`, ready-to-run.
 ### Build Instructions
 
 If you want to build *Sortdir* (and perhaps contribute to the code!), you
-will require the `cc65` C cross compiler for 6502.  `cc65` can be found
-[here](https://github.com/cc65/cc65).
+will require the [`cc65`](https://github.com/cc65/cc65) C cross compiler for 6502.
 
-I also use [Cadius](https://github.com/lroathe/cadius) for copying
+I also use [Cadius](https://github.com/mach-kernel/cadius) for copying
 `sortdir.system#ff0000` to an Apple II disk image.
 
 On a Linux system, you should be able to build by simply invoking `make`.
@@ -48,6 +47,8 @@ On a Linux system, you should be able to build by simply invoking `make`.
 TODO
 
 ### Command Line Options
+
+![](/Screenshots/BASIC_Launch.png)
 
 TODO
 
