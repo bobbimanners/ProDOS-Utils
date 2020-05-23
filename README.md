@@ -242,7 +242,19 @@ TODO
 
 ### Filename Case Change
 
-TODO
+ProDOS 2.5 supports mixed-case filenames rather than the uppercase only
+filenames supported by previous ProDOS versions.  This is done in a backwards
+compatible manner (using the 'version' and 'minversion' fields as a bitmap)
+so that ProDOS 2.5 filesystems will appear to contain upper-case only
+filenames when viewed using an earlier ProDOS version.
+
+*Sortdir* provides convenient options for manipulating the case of filenames.
+Four options are currently provided:
+
+  - *Upper Case* - `MY.EXAMPLE.FILE`
+  - *Lower Case* - `my.example.file`
+  - *Initial Case* - `My.example.file`
+  - *Camel Case* - `My.Example.File`
 
 ### Date and Time Format
 
