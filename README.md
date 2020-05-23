@@ -79,6 +79,14 @@ entering the `^` (caret) character will go back to the previous question.
 When in doubt, the `-` (minus) character is mapped to the most conservative
 choice for each option.
 
+In the example shown above, the user has requested that the `/gno/usr` 
+tree be processed (ie: `/gno/usr` and all directories underneath it in
+the heirarchy.)  Two levels of directory sorting are to be performed,
+first by name (in ascending order) and then to sort the directories
+to the bottom.  No conversion of filename case will be performed, but
+modification and creation time dates will be updated to the new ProDOS 2.5+
+format.
+
 The following prompts are presented in order:
 
   - *Path of starting directory*  Enter an absolute or relative path here.
@@ -113,29 +121,90 @@ The following prompts are presented in order:
     - `-` - Entering `-` (minus) will end the entry of sort options and move
             on to the next section.
   - *Filename case conversion ...*
-    - `-` -
-    - `l` -
-    - `u` -
-    - `i` -
-    - `c` - 
+    - `-` - No filename conversion.  Leave them as-is.
+    - `l` - Convert filenames to lower case `example.txt`
+    - `u` - Convert filenames to upper case `EXAMPLE.TXT`
+    - `i` - Convert filenames to initial case `Example.txt`
+    - `c` - Convert filenames to camel case `Example.Txt`
   - *On-disk date format conversion ...*
-    - `-` -
-    - `n` -
-    - `o` -
+    - `-` - No date/time conversion.  Leave them as-is.
+    - `n` - Convert modification and creation date/time to new ProDOS 2.5+
+            format.
+    - `o` - Convert modification and creation date/time to legacy ProDOS
+            format.
   - *Attempt to fix errors? ...*
-    - `-` -
-    - `?` -
-    - `a` -
+    - `-` - Never attempt to fix errors. Just report them.
+    - `?` - Every time a correctable error is encountered, prompt.
+    - `a` - Always fix correctable errors.  Use this with caution!
   - *Allow writing to disk? ...*
-    - `-` -
-    - `w` -
+    - `-` - Do not write changes to disk. This is useful to dry run the
+            settings to see what will happen.
+    - `w` - Write changes to disk.
 
 
 ### Command Line Options
 
 ![](/Screenshots/BASIC_Launch.png)
 
-TODO
+ProDOS 2.5 introduces support for passing command line parameters when
+starting a `.SYSTEM` file.  If no command line parameters are passed
+the the interactive user interface is presented (see previous section.)
+
+The following command line syntax is supported:
+
+```
+sortdir [-s xxx] [-n x] [-rDwcvVh] path
+
+      Options: -s xxx  Directory sort options
+               -n x    Filename upper/lower case options
+               -d x    Date format conversion options
+               -f x    Fix mode
+               -r      Recursive descent
+               -D      Whole-disk mode (implies -r)
+               -w      Enable writing to disk
+               -c      Use create time rather than modify time
+               -z      Zero free space
+               -v      Verbose output
+               -V      Verbose debugging output
+               -h      This help
+    
+    -nx: Upper/lower case filenames, where x is:
+      l  convert filenames to lower case           eg: read.me
+      u  convert filenames to upper case           eg: READ.ME
+      i  convert filenames to initial upper case   eg: Read.me
+      c  convert filenames to camel case           eg: Read.Me
+    
+    -dx: Date/time on-disk format conversion, where x is:
+      n  convert to new (ProDOS 2.5+) format
+      o  convert to old (ProDOS 1.0-2.4.2, GSOS) format
+    
+    -sxxx: Dir sort, where xxx is a list of fields to sort
+    on. The sort options are processed left-to-right.
+      n  sort by filename ascending
+      N  sort by filename descending
+      i  sort by filename ascending - case insensitive
+      I  sort by filename descending - case insensitive
+      d  sort by modify (or create [-c]) date ascending
+      D  sort by modify (or create [-c]) date descending
+      t  sort by type ascending
+      T  sort by type descending
+      f  sort folders (directories) to top
+      F  sort folders (directories) to bottom
+      b  sort by blocks used ascending
+      B  sort by blocks used descending
+      e  sort by EOF position ascending
+      E  sort by EOF position descending
+    
+    -fx: Fix mode, where x is:
+      ?  prompt for each fix
+      n  never fix
+      y  always fix (be careful!)
+```
+    
+For example `sortdir -rw -snf /foo` will sort the tree rooted at directory
+`/foo` first by name (ascending), then sort directories to the top, and will
+write the sorted directory to disk.
+
 
 ### Understanding the Display
 
