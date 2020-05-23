@@ -205,7 +205,6 @@ For example `sortdir -rw -snf /foo` will sort the tree rooted at directory
 `/foo` first by name (ascending), then sort directories to the top, and will
 write the sorted directory to disk.
 
-
 ### Understanding the Display
 
 ![](/Screenshots/Running.png)
@@ -234,11 +233,71 @@ For each directory processed, *Sortdir* performs the following steps:
 
 ### Directory Check and Repair
 
-TODO
+*Sortdir* performs raw block I/O and implements its own logic for walking
+through the filesystem.  When run in whole disk / volume mode, it starts out
+reading the volume directory (beginning at block 2) and ends up recursively
+descending throughout the entire directory tree, visiting all directories.
+
+Every directory (volume directory or subdirectory) is processed the same way.
+*Sortdir* first checks certain constants are the expected value in the
+directory header and then iterates through each of the directory entries,
+checking each one in turn.
+
+Directory entries may refer to files or directories.  In ProDOS there are three
+types of file - seedling, sapling and tree.  For each of these types of file,
+*Sortdir* explores the file structure, counts the blocks assigned to the file
+and checks that the total matches the number of blocks recorded in the
+directory entry.
+
+*Sortdir* checks directory entries which refer to directories in a similar way,
+verifying that the number of blocks allocated to storing the directory matches
+the number of blocks recorded in the directory entry.  If *Sortdir* is
+operating in recursive mode, the directory will be recorded in a list and
+visited later (rather than directly recursing, which would use too much
+stack.)
+
+**Note:** In the final release of *Sortdir* I plan to enable the 'free list'
+functionality which is currently disabled (due to lack of memory.)  When
+this is enabled, *Sortdir* will also check that disk blocks which are
+allocated to a directory or a file are *not* marked as free.  When performing
+whole disk / volume checks *Sortdir* will check for blocks which are not
+assigned to any file or directory and are also not marked as free.
+
+If a directory is badly corrupted, *Sortdir* will most likely crash or at the
+very least be unable to correct the problem.  More isolated problems, such
+as incorrect block counts or free list problems can be more readily
+corrected.  Fortunately, in day-to-day use of ProDOS these latter types of
+problems occur far more frequently than more extensive corruption.
+
+However, if *Sortdir* is able to traverse the entire disk and does not find
+any problems, one can be reasonably well assured that the filesystem structure
+is valid.
+
+*Sortdir* currently does not validate the modification and creation times are
+valid.
 
 ### Directory Sort
 
-TODO
+*Sortdir* can sort directories on up to four fields.  A stable sorting method
+is used which allows, for example, for directories to be sorted in
+alphabetical order by filename, but with directories sorted to the top.
+This may be done by first sorting on filename (ascending) and then on folders
+(directories).  Another example of a two level sort would be to sort by size
+and then by type, so that directory entries are grouped by type and ordered
+within those groups by size.  Sorting is quite fast, even on 1MHz 6502,
+because the Quicksort algorithm is used.
+
+The following fields are supported for sorting (each is ascending and
+descending order):
+
+  - Filename - case sensitive
+  - Filename - case insensitive
+  - File size in terms of blocks allocated
+  - File size in terms of EOF position
+  - File type
+  - Modification date/time
+  - Creation date/time
+  - Directory or non-directory
 
 ### Filename Case Change
 
