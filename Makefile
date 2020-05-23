@@ -11,7 +11,7 @@ CC65LIBDIR = $(CC65DIR)/lib
 CC65INCDIR = $(CC65DIR)/include
 CA65INCDIR = $(CC65DIR)/asminc
 
-all: sortdir.system\#ff0000
+all: sortdir.po sortdir.system\#ff0000
 
 clean:
 	rm -f *.s *.o *.map sortdir

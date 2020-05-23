@@ -1647,7 +1647,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("                                           Use ^ to return to previous question");
+	puts("S O R T D I R  v0.5 alpha                  Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
