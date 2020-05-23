@@ -210,7 +210,27 @@ write the sorted directory to disk.
 
 ![](/Screenshots/Running.png)
 
-TODO
+For each directory processed, *Sortdir* performs the following steps:
+
+  - Interate through the directory, checking the integrity of the directory
+    structure and that of each of the active directory entries.  For each
+    entry the type is displayed (`Dir` - directory, `Seed` - seedling file,
+    `Sapl` - sapling file, `Tree` - tree file, `Fork` - GSOS file with
+    resource fork.  The number of blocks belonging to each entry displayed,
+    followed by `[ OK ]` if no errors were found.  If errors were found
+    they are printed out below the directory entry in question.
+  - If sorting was requested, the sorted directory is displayed. This second
+    listing will reflect any filename case conversions or time/date format
+    conversions.  For each file the type, filename, number of blocks, EOF
+    position in bytes and date time are displayed.  Normally the modification
+    date/time is shown, but this may be switched to the creation time if the
+    `-c` command line option is used. This listing also allows the on-disk
+    format of the date/time fields to be determined as follows: the new-style
+    ProDOS 2.5+ format is indentied by showing an asterisk to the right of the
+    date/time.
+  - If writing to disk is enabled then a message is shown confirming the
+    updated directory has been written back to disk.  If writing to disk is
+    not enabled, which is the default, a warning message is displayed.
 
 ### Directory Check and Repair
 
