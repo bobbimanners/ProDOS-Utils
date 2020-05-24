@@ -7,6 +7,10 @@
  * TODO: Enable free list functionality on ProDOS-8
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  * TODO: Trimming unused directory blocks
+ *
+ * Revision History
+ * v0.5  Initial alpha release on GitHub. Ported from GNO/ME version.
+ * v0.51 Made buf[] and buf2[] dynamic.
  */
 
 //#pragma debug 9
@@ -139,7 +143,9 @@ struct datetime {
 	uchar ispd25format;
 };
 
-/* Globals */
+/*
+ * Globals
+ */
 #ifdef FREELIST
 static uint totblks;             /* Total # blocks on volume */
 static uchar *freelist;          /* Free-list bitmap */
@@ -149,12 +155,9 @@ static uchar flloaded = 0;       /* 1 if free-list has been loaded */
 static char currdir[NMLEN+1];    /* Name of directory currently processed */
 static struct block *blocks = NULL;
 static struct dirblk *dirs = NULL;
-static struct fileent filelist[MAXFILES];
 static uint numfiles;
 static uchar entsz;                      /* Bytes per file entry */
 static uchar entperblk;                  /* Number of entries per block */
-static char buf[BLKSZ];                  /* General purpose scratch buffer */
-static char buf2[BLKSZ];                 /* General purpose scratch buffer */
 static uint errcount = 0;                /* Error counter */
 static dhandle_t dio_hdl;                /* cc64 direct I/O handle */
 static uchar dowholedisk = 0;            /* -D whole-disk option */
@@ -168,6 +171,11 @@ static char sortopts[NLEVELS+1] = "";    /* -s:abc list of sort options */
 static char caseopts[2] = "";            /* -c:x case conversion option */
 static char fixopts[2] = "";             /* -f:x fix mode option */
 static char dateopts[2] = "";            /* -d:x date conversion option */
+static struct fileent filelist[MAXFILES];         /* Used for qsort() */
+
+// Allocated dynamically in main()
+static char *buf;                        /* General purpose scratch buffer */
+static char *buf2;                       /* General purpose scratch buffer */
 
 /* Prototypes */
 void hline(void);
@@ -1647,7 +1655,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.5 alpha                  Use ^ to return to previous question");
+	puts("S O R T D I R  v0.51 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
@@ -1986,6 +1994,11 @@ int main() {
 
 	_heapadd((void*)0x0800, 0x1800);
 	//printf("\nHeap: %u %u\n", _heapmemavail(), _heapmaxavail());
+
+	// Allocate these dynamically so the .SYSTEM file is smaller!
+	//filelist = (struct fileent*)malloc(sizeof(struct fileent) * MAXFILES);
+	buf =  (char*)malloc(sizeof(char) * BLKSZ);
+	buf2 =  (char*)malloc(sizeof(char) * BLKSZ);
 
 	parseargs();
 
