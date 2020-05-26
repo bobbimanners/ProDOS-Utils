@@ -1327,7 +1327,6 @@ int readdir(uint device, uint blocknum) {
 	copyaux(dirblkbuf, curblk->data, BLKSZ, TOAUX);
 	bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
 	copyaux(dirblkbuf, curblk->sorteddata, BLKSZ, TOAUX);
-	freeallaux();
 #else
 	memcpy(curblk->data, dirblkbuf, BLKSZ);
 	bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
@@ -1620,7 +1619,6 @@ uint blockidxtoblocknum(uint idx) {
 /*
  * Copy a file entry from one srcblk, srcent to dstblk, dstent
  * All indices are 1-based.
- * TODO: HANDLE AUX MEMORY
  */
 void copyent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device) {
 	struct block *source = blocks, *dest = blocks;
@@ -1642,10 +1640,19 @@ void copyent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device) {
 		dest = dest->next;
 	srcptr =  source->data + PTRSZ + (srcent-1) * entsz;
 	dstptr =  dest->sorteddata + PTRSZ + (dstent-1) * entsz;
+#ifdef AUXMEM
+	copyaux(srcptr, buf2, entsz, FROMAUX);
+	copyaux(buf2, dstptr, entsz, TOAUX);
+#else
 	memcpy(dstptr, srcptr, entsz);
+#endif
 
 	/* For directories, update the parent dir entry number */
+#ifdef AUXMEM
+	ent = (struct pd_dirent*)buf2;
+#else
 	ent = (struct pd_dirent*)dstptr;
+#endif
 	if ((ent->typ_len & 0xf0) == 0xd0) {
 		uint block = ent->keyptr[0] + 256U * ent->keyptr[1];
 		if (readdiskblock(device, block, buf) == -1)
@@ -1920,6 +1927,9 @@ void processdir(uint device, uint blocknum) {
 	}
 done:
 	freeblocks();
+#ifdef AUXMEM
+	freeallaux();
+#endif
 }
 
 /*
