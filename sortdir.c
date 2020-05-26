@@ -296,8 +296,8 @@ void err(enum errtype severity, char *fmt, ...) {
 
 	fputs(((rv > 0) ? "  ** " : "  "), stdout);
 	va_start(v, fmt);
-	vprintf(fmt, v);
 	putchar('\n');
+	vprintf(fmt, v);
 	va_end(v);
 	if (rv > 0) {
 		printf("Stopping after %u errors\n", errcount);
