@@ -37,6 +37,7 @@
 #define CHECK		/* Perform additional integrity checking */
 #define SORT        /* Enable sorting code */
 #undef FREELIST     /* Checking of free list */
+#undef AUXMEM       /* Auxiliary memory support on //e and up */
 
 #define NLEVELS 4	/* Number of nested sorts permitted */
 
@@ -178,6 +179,10 @@ static char *buf;                        /* General purpose scratch buffer */
 static char *buf2;                       /* General purpose scratch buffer */
 
 /* Prototypes */
+#ifdef AUXMEM
+void copyaux(char *src, char *dst, uint len, uchar dir);
+char *auxalloc(uint bytes);
+#endif
 void hline(void);
 void confirm(void);
 void err(enum errtype severity, char *fmt, ...);
@@ -238,6 +243,37 @@ void checkfreeandused(uchar device);
 void zeroblock(uchar device, uint blocknum);
 void zerofreeblocks(uchar device, uint freeblks);
 void parseargs(void);
+
+#ifdef AUXMEM
+
+/* Aux memory copy routine */
+#define FROMAUX 0
+#define TOAUX   1
+void copyaux(char *src, char *dst, uint len, uchar dir) {
+	char **a1 = (char**)0x3c;
+	char **a2 = (char**)0x3e;
+	char **a4 = (char**)0x42;
+	*a1 = src;
+	*a2 = src + len;
+	*a4 = dst;
+	if (dir == TOAUX) {
+		__asm__("sec");       // Copy main->aux
+		__asm__("jsr $c311"); // AUXMOVE
+	} else {
+		__asm__("clc");       // Copy aux->main
+		__asm__("jsr $c311"); // AUXMOVE
+	}
+}
+
+/* Extremely simple aux memory allocator */
+#define STARTAUX 0x200
+char *auxalloc(uint bytes) {
+	static char *highwater = (char*)STARTAUX;
+	highwater += bytes;
+	return highwater;
+}
+
+#endif
 
 /* Horizontal line */
 void hline(void) {
