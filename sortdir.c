@@ -11,6 +11,7 @@
  * Revision History
  * v0.5  Initial alpha release on GitHub. Ported from GNO/ME version.
  * v0.51 Made buf[] and buf2[] dynamic.
+ * v0.52 Support for aux memory.
  */
 
 //#pragma debug 9
@@ -104,8 +105,13 @@ struct pd_dirent {
  * Directory block for sorted directory is stored in sorteddata[]
  */
 struct block {
+#ifdef AUXMEM
+	char *data;               /* Original contents of block */
+	char *sorteddata;         /* Content block for sorted dir */
+#else
 	char data[BLKSZ];         /* Original contents of block */
 	char sorteddata[BLKSZ];   /* Content block for sorted dir */
+#endif
 	uint blocknum;            /* Block number on disk */
 	struct block *next;
 };
@@ -147,6 +153,10 @@ struct datetime {
 /*
  * Globals
  */
+#ifdef AUXMEM
+#define STARTAUX 0x200
+static char *auxp = (char*)STARTAUX;
+#endif
 #ifdef FREELIST
 static uint totblks;             /* Total # blocks on volume */
 static uchar *freelist;          /* Free-list bitmap */
@@ -177,11 +187,13 @@ static struct fileent filelist[MAXFILES];         /* Used for qsort() */
 // Allocated dynamically in main()
 static char *buf;                        /* General purpose scratch buffer */
 static char *buf2;                       /* General purpose scratch buffer */
+static char *dirblkbuf;                  /* Used for reading directory blocks */
 
 /* Prototypes */
 #ifdef AUXMEM
 void copyaux(char *src, char *dst, uint len, uchar dir);
 char *auxalloc(uint bytes);
+void freeallaux(void);
 #endif
 void hline(void);
 void confirm(void);
@@ -266,11 +278,15 @@ void copyaux(char *src, char *dst, uint len, uchar dir) {
 }
 
 /* Extremely simple aux memory allocator */
-#define STARTAUX 0x200
+/* TODO: Check for overflow!!!! */
 char *auxalloc(uint bytes) {
-	static char *highwater = (char*)STARTAUX;
-	highwater += bytes;
-	return highwater;
+	auxp += bytes;
+	return auxp;
+}
+
+/* TODO: Will need something better */
+void freeallaux() {
+	auxp = (char*)STARTAUX;
 }
 
 #endif
@@ -1004,7 +1020,6 @@ int  subdirblocks(uchar device, uint keyblk, struct pd_dirent *ent,
 void enqueuesubdir(uint blocknum, uint subdiridx) {
 	static struct dirblk *prev;
 	struct dirblk *p = (struct dirblk*)malloc(sizeof(struct dirblk));
-//printf("ALLOC %p\n", p);
 	if (!p)
 		err(FATALALLOC, "No memory!");
 	p->blocknum = blocknum;
@@ -1039,7 +1054,6 @@ int readdir(uint device, uint blocknum) {
 	numfiles = 0;
 
 	blocks = (struct block*)malloc(sizeof(struct block));
-//printf("ALLOC %p\n", blocks);
 	if (!blocks)
 		err(FATALALLOC, "No memory!");
 	curblk = blocks;
@@ -1049,12 +1063,12 @@ int readdir(uint device, uint blocknum) {
 #ifdef FREELIST
 	checkblock(blocknum, "Directory");
 #endif
-	if (readdiskblock(device, blocknum, curblk->data) == -1) {
+	if (readdiskblock(device, blocknum, dirblkbuf) == -1) {
 		err(NONFATAL, "Error reading dir blk %d", blkcnt);
 		return 1;
 	}
 
-	hdr = (struct pd_dirhdr*)(curblk->data + PTRSZ);
+	hdr = (struct pd_dirhdr*)(dirblkbuf + PTRSZ);
 
 	entsz      = hdr->entlen;
 	entperblk  = hdr->entperblk;
@@ -1067,10 +1081,6 @@ int readdir(uint device, uint blocknum) {
 	printf("Directory %s (%u", currdir, filecount);
 	printf(" %s)\n", filecount == 1 ? "entry" : "entries");
 	hline();
-
-	/* Copy pointers to sorteddata[], zero the rest */
-	bzero(curblk->sorteddata, BLKSZ);
-	memcpy(curblk->sorteddata, curblk->data, PTRSZ);
 
 #ifdef CHECK
 	if (entsz != 0x27) {
@@ -1089,7 +1099,7 @@ int readdir(uint device, uint blocknum) {
 
 	while (1) {
 		uint errsbeforeent = errcount;
-		struct pd_dirent *ent = (struct pd_dirent*)(curblk->data + idx);
+		struct pd_dirent *ent = (struct pd_dirent*)(dirblkbuf + idx);
 
 		if (ent->typ_len != 0) {
 
@@ -1250,8 +1260,7 @@ int readdir(uint device, uint blocknum) {
 					    "should be %u", blks, count);
 					if (askfix() == 1) {
 						ent->blksused[0] = count&0xff;
-						ent->blksused[1] =
-						  (count >> 8) & 0xff;
+						ent->blksused[1] = (count >> 8) & 0xff;
 					}
 				}
 			}
@@ -1270,13 +1279,11 @@ int readdir(uint device, uint blocknum) {
 			++entries;
 		}
 		if (blkentries == entperblk) {
-			blocknum = curblk->data[0x02] + 256U*curblk->data[0x03];
+			blocknum = dirblkbuf[0x02] + 256U * dirblkbuf[0x03];
 			if (blocknum == 0) {
 				break;
 			}
-			curblk->next =
-			  (struct block*)malloc(sizeof(struct block));
-//printf("ALLOC %p\n", curblk->next);
+			curblk->next = (struct block*)malloc(sizeof(struct block));
 			if (!curblk->next)
 				err(FATALALLOC, "No memory!");
 			curblk = curblk->next;
@@ -1286,15 +1293,21 @@ int readdir(uint device, uint blocknum) {
 #ifdef FREELIST
 			checkblock(blocknum, "Directory");
 #endif
-			if ( readdiskblock(device, blocknum,
-			                   curblk->data) == -1) {
+#ifdef AUXMEM
+			copyaux(dirblkbuf, curblk->data, BLKSZ, TOAUX);
+			bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
+			copyaux(dirblkbuf, curblk->sorteddata, BLKSZ, TOAUX);
+#else
+			memcpy(curblk->data, dirblkbuf, BLKSZ);
+			bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
+			memcpy(curblk->sorteddata, dirblkbuf, PTRSZ);
+#endif
+			if ( readdiskblock(device, blocknum, dirblkbuf) == -1) {
 				err(NONFATAL,"Error reading dir blk %d",
 				    blkcnt);
 				return 1;
 			}
-			/* Copy ptrs to sorteddata[], zero the rest */
-			bzero(curblk->sorteddata, BLKSZ);
-			memcpy(curblk->sorteddata, curblk->data, PTRSZ);
+
 			blkentries = 1;
 			idx = PTRSZ;
 		} else {
@@ -1310,6 +1323,17 @@ int readdir(uint device, uint blocknum) {
 			hdr->filecnt[1] = (entries >> 8) & 0xff;
 		}
 	}
+#ifdef AUXMEM
+	copyaux(dirblkbuf, curblk->data, BLKSZ, TOAUX);
+	bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
+	copyaux(dirblkbuf, curblk->sorteddata, BLKSZ, TOAUX);
+	freeallaux();
+#else
+	memcpy(curblk->data, dirblkbuf, BLKSZ);
+	bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
+	memcpy(curblk->sorteddata, dirblkbuf, PTRSZ);
+#endif
+
 	return errcount - errsbefore;
 }
 
@@ -1596,6 +1620,7 @@ uint blockidxtoblocknum(uint idx) {
 /*
  * Copy a file entry from one srcblk, srcent to dstblk, dstent
  * All indices are 1-based.
+ * TODO: HANDLE AUX MEMORY
  */
 void copyent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device) {
 	struct block *source = blocks, *dest = blocks;
@@ -1663,7 +1688,12 @@ void sortblocks(uint device) {
 int writedir(uchar device) {
 	struct block *i = blocks;
 	while (i) {
-		if(writediskblock(device, i->blocknum, i->sorteddata) == -1) {
+#ifdef AUXMEM
+		copyaux(i->sorteddata, dirblkbuf, BLKSZ, FROMAUX);
+		if (writediskblock(device, i->blocknum, dirblkbuf) == -1) {
+#else
+		if (writediskblock(device, i->blocknum, i->sorteddata) == -1) {
+#endif
 			err(NONFATAL, "Can't write block %u", i->blocknum);
 			return 1;
 		}
@@ -1691,7 +1721,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.51 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.52 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
@@ -2006,14 +2036,6 @@ int main() {
 	int opt;
 	uchar dev;
 	uint blk;
-//	int argc = 5;
-//	char *argv[] = {"sortdir", "-r", "-v", "-snf", "/gno"}; // TODO: HARDCODED FOR NOW
-
-//	uint *p;
-//	p = (uint*)0x36; // CSW
-//	*p = 0xc307; // BASICOUT
-//	p = (uint*)0x38; // KSW
-//	*p = 0xc305; // BASICIN
 
 	uchar *pp;
 	pp = (uchar*)0xbf98;
@@ -2031,10 +2053,10 @@ int main() {
 	_heapadd((void*)0x0800, 0x1800);
 	//printf("\nHeap: %u %u\n", _heapmemavail(), _heapmaxavail());
 
-	// Allocate these dynamically so the .SYSTEM file is smaller!
 	//filelist = (struct fileent*)malloc(sizeof(struct fileent) * MAXFILES);
 	buf =  (char*)malloc(sizeof(char) * BLKSZ);
 	buf2 =  (char*)malloc(sizeof(char) * BLKSZ);
+	dirblkbuf = (char*)malloc(sizeof(char) * BLKSZ);
 
 	parseargs();
 
