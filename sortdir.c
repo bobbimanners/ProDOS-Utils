@@ -38,7 +38,7 @@
 #define CHECK		/* Perform additional integrity checking */
 #define SORT        /* Enable sorting code */
 #undef FREELIST     /* Checking of free list */
-#undef AUXMEM       /* Auxiliary memory support on //e and up */
+#define AUXMEM       /* Auxiliary memory support on //e and up */
 
 #define NLEVELS 4	/* Number of nested sorts permitted */
 
@@ -47,7 +47,7 @@ typedef unsigned int  uint;
 typedef unsigned long ulong;
 
 #define NMLEN 15	/* Length of filename */
-#define MAXFILES 200	/* Max files per directory */
+#define MAXFILES 220	/* Max files per directory */
 
 /*
  * ProDOS directory header
@@ -182,7 +182,7 @@ static char sortopts[NLEVELS+1] = "";    /* -s:abc list of sort options */
 static char caseopts[2] = "";            /* -c:x case conversion option */
 static char fixopts[2] = "";             /* -f:x fix mode option */
 static char dateopts[2] = "";            /* -d:x date conversion option */
-static struct fileent filelist[MAXFILES];         /* Used for qsort() */
+static struct fileent *filelist;         /* Used for qsort() */
 
 // Allocated dynamically in main()
 static char *buf;                        /* General purpose scratch buffer */
@@ -1267,7 +1267,7 @@ int readdir(uint device, uint blocknum) {
 #endif
 			++numfiles;
 			if (numfiles == MAXFILES) {
-				err(NONFATAL, "Too many files!");
+				err(NONFATAL, "Too many files!\n");
 				return 1;
 			}
 			if (errcount == errsbeforeent) {
@@ -2063,7 +2063,7 @@ int main() {
 	_heapadd((void*)0x0800, 0x1800);
 	//printf("\nHeap: %u %u\n", _heapmemavail(), _heapmaxavail());
 
-	//filelist = (struct fileent*)malloc(sizeof(struct fileent) * MAXFILES);
+	filelist = (struct fileent*)malloc(sizeof(struct fileent) * MAXFILES);
 	buf =  (char*)malloc(sizeof(char) * BLKSZ);
 	buf2 =  (char*)malloc(sizeof(char) * BLKSZ);
 	dirblkbuf = (char*)malloc(sizeof(char) * BLKSZ);
