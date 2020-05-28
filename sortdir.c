@@ -13,6 +13,7 @@
  * v0.52 Support for aux memory.
  * v0.53 Auto-sizing of filelist[] to fit available memory.
  * v0.54 Make command line argument handling a compile time option.
+ * v0.55 Can use *all* of largest heap block for filelist[]
  */
 
 //#pragma debug 9
@@ -1732,7 +1733,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.54 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.55 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
@@ -2074,7 +2075,7 @@ int main() {
 	buf2 =  (char*)malloc(sizeof(char) * BLKSZ);
 	dirblkbuf = (char*)malloc(sizeof(char) * BLKSZ);
 	//printf("\nHeap: %u %u\n", _heapmemavail(), _heapmaxavail());
-	blk = (_heapmaxavail() - 1024) / sizeof(struct fileent);
+	blk = _heapmaxavail() / sizeof(struct fileent);
 	printf("[%u]\n", blk);
 	filelist = (struct fileent*)malloc(sizeof(struct fileent) * blk);
 
