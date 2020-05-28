@@ -3,7 +3,6 @@
  *
  * Bobbi January-March 2020
  *
- * TODO: Aux memory support for ProDOS-8
  * TODO: Enable free list functionality on ProDOS-8
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  * TODO: Trimming unused directory blocks
@@ -12,6 +11,7 @@
  * v0.5  Initial alpha release on GitHub. Ported from GNO/ME version.
  * v0.51 Made buf[] and buf2[] dynamic.
  * v0.52 Support for aux memory.
+ * v0.53 Auto-sizing of filelist[] to fit available memory.
  */
 
 //#pragma debug 9
@@ -1728,7 +1728,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.52 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.53 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
@@ -2063,10 +2063,13 @@ int main() {
 	_heapadd((void*)0x0800, 0x1800);
 	//printf("\nHeap: %u %u\n", _heapmemavail(), _heapmaxavail());
 
-	filelist = (struct fileent*)malloc(sizeof(struct fileent) * MAXFILES);
 	buf =  (char*)malloc(sizeof(char) * BLKSZ);
 	buf2 =  (char*)malloc(sizeof(char) * BLKSZ);
 	dirblkbuf = (char*)malloc(sizeof(char) * BLKSZ);
+	//printf("\nHeap: %u %u\n", _heapmemavail(), _heapmaxavail());
+	blk = (_heapmaxavail() - 1024) / sizeof(struct fileent);
+	printf("[%u]\n", blk);
+	filelist = (struct fileent*)malloc(sizeof(struct fileent) * blk);
 
 	parseargs();
 
