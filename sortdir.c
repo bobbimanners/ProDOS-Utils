@@ -12,6 +12,7 @@
  * v0.51 Made buf[] and buf2[] dynamic.
  * v0.52 Support for aux memory.
  * v0.53 Auto-sizing of filelist[] to fit available memory.
+ * v0.54 Make command line argument handling a compile time option.
  */
 
 //#pragma debug 9
@@ -38,7 +39,8 @@
 #define CHECK		/* Perform additional integrity checking */
 #define SORT        /* Enable sorting code */
 #undef FREELIST     /* Checking of free list */
-#define AUXMEM       /* Auxiliary memory support on //e and up */
+#define AUXMEM      /* Auxiliary memory support on //e and up */
+#undef CMDLINE      /* Command line option parsing */
 
 #define NLEVELS 4	/* Number of nested sorts permitted */
 
@@ -249,12 +251,14 @@ void sortblocks(uint device);
 int  writedir(uchar device);
 void freeblocks(void);
 void interactive(void);
-void usage(void);
 void processdir(uint device, uint blocknum);
 void checkfreeandused(uchar device);
 void zeroblock(uchar device, uint blocknum);
 void zerofreeblocks(uchar device, uint freeblks);
+#ifdef CMDLINE
+void usage(void);
 void parseargs(void);
+#endif
 
 #ifdef AUXMEM
 
@@ -1728,7 +1732,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.53 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.54 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
@@ -1832,61 +1836,6 @@ q8:
 //do_ctime = 0;       /* -k ctime option */
 }
 
-void usage(void) {
-	printf("usage: sortdir [-s xxx] [-n x] [-rDwcvVh] path\n\n");
-#if 0
-	printf("  Options: -s xxx  Directory sort options\n");
-	printf("           -n x    Filename upper/lower case options\n");
-	printf("           -d x    Date format conversion options\n");
-	printf("           -f x    Fix mode\n");
-	printf("           -r      Recursive descent\n");
-	printf("           -D      Whole-disk mode (implies -r)\n");
-	printf("           -w      Enable writing to disk\n");
-	printf("           -c      Use create time rather than modify time\n");
-	printf("           -z      Zero free space\n");
-	printf("           -v      Verbose output\n");
-	printf("           -V      Verbose debugging output\n");
-	printf("           -h      This help\n");
-	printf("\n");
-	printf("-nx: Upper/lower case filenames, where x is:\n");
-	printf("  l  convert filenames to lower case           eg: read.me\n");
-	printf("  u  convert filenames to upper case           eg: READ.ME\n");
-	printf("  i  convert filenames to initial upper case   eg: Read.me\n");
-	printf("  c  convert filenames to camel case           eg: Read.Me\n");
-	printf("\n");
-	printf("-dx: Date/time on-disk format conversion, where x is:\n");
-	printf("  n  convert to new (ProDOS 2.5+) format\n");
-	printf("  o  convert to old (ProDOS 1.0-2.4.2, GSOS) format\n");
-	printf("\n");
-	printf("-sxxx: Dir sort, where xxx is a list of fields to sort\n");
-	printf("on. The sort options are processed left-to-right.\n");
-	printf("  n  sort by filename ascending\n");
-	printf("  N  sort by filename descending\n");
-	printf("  i  sort by filename ascending - case insensitive\n");
-	printf("  I  sort by filename descending - case insensitive\n");
-	printf("  d  sort by modify (or create [-c]) date ascending\n");
-	printf("  D  sort by modify (or create [-c]) date descending\n");
-	printf("  t  sort by type ascending\n");
-	printf("  T  sort by type descending\n");
-	printf("  f  sort folders (directories) to top\n");
-	printf("  F  sort folders (directories) to bottom\n");
-	printf("  b  sort by blocks used ascending\n");
-	printf("  B  sort by blocks used descending\n");
-	printf("  e  sort by EOF position ascending\n");
-	printf("  E  sort by EOF position descending\n");
-	printf("\n");
-	printf("-fx: Fix mode, where x is:\n");
-	printf("  ?  prompt for each fix\n");
-	printf("  n  never fix\n");
-	printf("  y  always fix (be careful!)\n");
-	printf("\n");
-	printf("e.g.: sortdir -w -s nf .\n");
-	printf("Will sort the current directory first by name (ascending),\n");
-	printf("then sort directories to the top, and will write the\n");
-	printf("sorted directory to disk.\n");
-#endif
-	err(FATAL, "Usage error");
-}
 
 /*
  * Performs all actions for a single directory
@@ -2012,6 +1961,62 @@ void zerofreeblocks(uchar device, uint freeblks) {
 }
 #endif
 
+#ifdef CMDLINE
+
+void usage(void) {
+	printf("usage: sortdir [-s xxx] [-n x] [-rDwcvVh] path\n\n");
+	printf("  Options: -s xxx  Directory sort options\n");
+	printf("           -n x    Filename upper/lower case options\n");
+	printf("           -d x    Date format conversion options\n");
+	printf("           -f x    Fix mode\n");
+	printf("           -r      Recursive descent\n");
+	printf("           -D      Whole-disk mode (implies -r)\n");
+	printf("           -w      Enable writing to disk\n");
+	printf("           -c      Use create time rather than modify time\n");
+	printf("           -z      Zero free space\n");
+	printf("           -v      Verbose output\n");
+	printf("           -V      Verbose debugging output\n");
+	printf("           -h      This help\n");
+	printf("\n");
+	printf("-nx: Upper/lower case filenames, where x is:\n");
+	printf("  l  convert filenames to lower case           eg: read.me\n");
+	printf("  u  convert filenames to upper case           eg: READ.ME\n");
+	printf("  i  convert filenames to initial upper case   eg: Read.me\n");
+	printf("  c  convert filenames to camel case           eg: Read.Me\n");
+	printf("\n");
+	printf("-dx: Date/time on-disk format conversion, where x is:\n");
+	printf("  n  convert to new (ProDOS 2.5+) format\n");
+	printf("  o  convert to old (ProDOS 1.0-2.4.2, GSOS) format\n");
+	printf("\n");
+	printf("-sxxx: Dir sort, where xxx is a list of fields to sort\n");
+	printf("on. The sort options are processed left-to-right.\n");
+	printf("  n  sort by filename ascending\n");
+	printf("  N  sort by filename descending\n");
+	printf("  i  sort by filename ascending - case insensitive\n");
+	printf("  I  sort by filename descending - case insensitive\n");
+	printf("  d  sort by modify (or create [-c]) date ascending\n");
+	printf("  D  sort by modify (or create [-c]) date descending\n");
+	printf("  t  sort by type ascending\n");
+	printf("  T  sort by type descending\n");
+	printf("  f  sort folders (directories) to top\n");
+	printf("  F  sort folders (directories) to bottom\n");
+	printf("  b  sort by blocks used ascending\n");
+	printf("  B  sort by blocks used descending\n");
+	printf("  e  sort by EOF position ascending\n");
+	printf("  E  sort by EOF position descending\n");
+	printf("\n");
+	printf("-fx: Fix mode, where x is:\n");
+	printf("  ?  prompt for each fix\n");
+	printf("  n  never fix\n");
+	printf("  y  always fix (be careful!)\n");
+	printf("\n");
+	printf("e.g.: sortdir -w -s nf .\n");
+	printf("Will sort the current directory first by name (ascending),\n");
+	printf("then sort directories to the top, and will write the\n");
+	printf("sorted directory to disk.\n");
+	err(FATAL, "Usage error");
+}
+
 #define MAXNUMARGS 10
 
 int argc;
@@ -2040,6 +2045,8 @@ void parseargs() {
 		prev = *p;
 	}
 }
+
+#endif
 
 //int main(int argc, char *argv[]) {
 int main() {
@@ -2071,11 +2078,13 @@ int main() {
 	printf("[%u]\n", blk);
 	filelist = (struct fileent*)malloc(sizeof(struct fileent) * blk);
 
+#ifdef CMDLINE
 	parseargs();
+#endif
 
+#ifdef CMDLINE
 	if (argc == 1)
 		interactive();
-
 	else {
 		if (argc < 2)
 			usage();
@@ -2126,12 +2135,22 @@ int main() {
 	if (optind != argc - 1)
 		usage();
 	}
+#else
+
+	interactive();
+
+#endif
 
 	if (((strlen(caseopts) > 0) || (strlen(fixopts) > 0) ||
 	     (strlen(dateopts) > 0)) && (strlen(sortopts) == 0))
 		strncpy(sortopts, ".", 1);
 
+#ifdef CMDLINE
 	firstblk(((argc == 1) ? buf : argv[optind]), &dev, &blk);
+#else
+	firstblk(buf, &dev, &blk);
+#endif
+
 #ifdef FREELIST
 	readfreelist(dev);
 #endif
