@@ -638,7 +638,7 @@ void readdatetime(uchar time[4], struct datetime *dt) {
 		dt->year   = t & 0x0fff;
 		dt->month  = ((t & 0xf000) >> 12) - 1;
 		dt->day    = (d & 0xf800) >> 11;
-           	dt->hour   = (d & 0x07c0) >> 6; 
+		dt->hour   = (d & 0x07c0) >> 6; 
 		dt->minute = d & 0x003f;
 		dt->ispd25format = 1;
 	}
