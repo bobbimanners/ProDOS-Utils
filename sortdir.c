@@ -14,6 +14,7 @@
  * v0.53 Auto-sizing of filelist[] to fit available memory.
  * v0.54 Make command line argument handling a compile time option.
  * v0.55 Can use *all* of largest heap block for filelist[]
+ * v0.56 Minor improvements to conditional compilation
  */
 
 //#pragma debug 9
@@ -1733,7 +1734,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.55 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.56 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
@@ -1810,6 +1811,7 @@ q6:
 		goto q5;
 	fixopts[0] = ((f == '-') ? 'n' : f);
 
+#ifdef FREELIST
 q7:
 	if (w == 'v') {
 		puts("\nZero free space? ...");
@@ -1822,6 +1824,7 @@ q7:
 		if (z == 'z')
 			dozero = 1;
 	}
+#endif
 
 q8:	
 	puts("\nAllow writing to disk? ...");
@@ -1830,7 +1833,11 @@ q8:
 		wrt = getchar();
 	} while (strchr("-w^", wrt) == NULL);
 	if (wrt == '^')
+#ifdef FREELIST
 		goto q7;
+#else
+		goto q6;
+#endif
 	if (wrt == 'w')
 		dowrite = 1;
 
@@ -2059,8 +2066,10 @@ int main() {
 	pp = (uchar*)0xbf98;
 	if (!(*pp & 0x02))
 		err(FATAL, "Need 80 cols");
+#ifdef AUXMEM
 	if ((*pp & 0x30) != 0x30)
 		err(FATAL, "Need 128K");
+#endif
 
 	// Clear system bit map
 	for (pp = (uchar*)0xbf58; pp <= (uchar*)0xbf6f; ++pp)
