@@ -12,10 +12,11 @@
  * v0.51 Made buf[] and buf2[] dynamic.
  * v0.52 Support for aux memory.
  * v0.53 Auto-sizing of filelist[] to fit available memory.
- * v0.54 Make command line argument handling a compile time option.
+ * v0.54 Make command line argument handling a compile time option
  * v0.55 Can use *all* of largest heap block for filelist[]
  * v0.56 Minor improvements to conditional compilation
- * v0.57 Fixed bugs in aux memory allocation
+ * v0.57 Fixed bugs in aux memory allocation, memory zeroing bug
+ * v0.58 Fixed more bugs. Now working properly using aux memory
  */
 
 //#pragma debug 9
@@ -42,7 +43,7 @@
 #define CHECK		/* Perform additional integrity checking */
 #define SORT        /* Enable sorting code */
 #undef FREELIST     /* Checking of free list */
-#undef AUXMEM      /* Auxiliary memory support on //e and up */
+#define AUXMEM      /* Auxiliary memory support on //e and up */
 #undef CMDLINE      /* Command line option parsing */
 
 #define NLEVELS 4	/* Number of nested sorts permitted */
@@ -182,7 +183,7 @@ static uchar dowholedisk = 0;            /* -D whole-disk option */
 static uchar dorecurse = 0;              /* -r recurse option */
 static uchar dowrite = 0;                /* -w write option */
 static uchar doverbose = 0;              /* -v verbose option */
-static uchar dodebug = 1;                /* -V very verbose option */
+static uchar dodebug = 0;                /* -V very verbose option */
 static uchar do_ctime = 0;               /* -k ctime option */
 static uchar dozero = 0;                 /* -z zero free blocks option */
 static char sortopts[NLEVELS+1] = "";    /* -s:abc list of sort options */
@@ -1063,7 +1064,6 @@ int readdir(uint device, uint blocknum) {
 	numfiles = 0;
 
 	blocks = (struct block*)malloc(sizeof(struct block));
-printf("FIRST BLOCK %d at %p\n", blocknum, blocks);
 	if (!blocks)
 		err(FATALALLOC, "No memory!");
 	curblk = blocks;
@@ -1299,7 +1299,7 @@ printf("FIRST BLOCK %d at %p\n", blocknum, blocks);
 		if (blkentries == entperblk) {
 #ifdef AUXMEM
 			copyaux(dirblkbuf, curblk->data, BLKSZ, TOAUX);
-			bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
+///			bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
 			copyaux(dirblkbuf, curblk->sorteddata, BLKSZ, TOAUX);
 #else
 			memcpy(curblk->data, dirblkbuf, BLKSZ);
@@ -1311,7 +1311,6 @@ printf("FIRST BLOCK %d at %p\n", blocknum, blocks);
 				break;
 			}
 			curblk->next = (struct block*)malloc(sizeof(struct block));
-printf("NEXT BLOCK %d at %p\n", blocknum, curblk->next);
 			if (!curblk->next)
 				err(FATALALLOC, "No memory!");
 			curblk = curblk->next;
@@ -1353,7 +1352,7 @@ printf("NEXT BLOCK %d at %p\n", blocknum, curblk->next);
 	}
 #ifdef AUXMEM
 	copyaux(dirblkbuf, curblk->data, BLKSZ, TOAUX);
-	bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
+///	bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
 	copyaux(dirblkbuf, curblk->sorteddata, BLKSZ, TOAUX);
 #else
 	memcpy(curblk->data, dirblkbuf, BLKSZ);
@@ -1788,7 +1787,6 @@ void sortblocks(uint device) {
 int writedir(uchar device) {
 	struct block *b = blocks;
 	while (b) {
-printf("WRITING BLOCK %d from %p\n", b->blocknum, b);
 #ifdef AUXMEM
 		copyaux(b->sorteddata, dirblkbuf, BLKSZ, FROMAUX);
 		if (writediskblock(device, b->blocknum, dirblkbuf) == -1) {
@@ -1822,7 +1820,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.57 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.58 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
