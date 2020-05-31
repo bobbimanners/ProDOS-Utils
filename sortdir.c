@@ -3,6 +3,11 @@
  *
  * Bobbi January-March 2020
  *
+ * TODO: IDEA you only need one sorteddata block at a time. Do not allocate
+ *       until writeout time and use one block buffer.  Iterate through
+ *       filelist[] collecting all entries for block 1, 2, 3 in turn.
+ *       Huge aux memory savings!!
+ * TODO: filent can be a couple bytes smaller.
  * TODO: Obsolete MAXFILES is hardcoded - need a better way to do this
  * TODO: Check for no memory when allocating aux memory
  * TODO: Enable free list functionality on ProDOS-8
@@ -20,6 +25,7 @@
  * v0.57 Fixed bugs in aux memory allocation, memory zeroing bug
  * v0.58 Fixed more bugs. Now working properly using aux memory
  * v0.59 Moved creation of filelist[] into buildsorttable(). More bugfix.
+ * v0.60 Modified fileent to be a union. Build it for each subsort. Saves RAM.
  */
 
 //#pragma debug 9
@@ -130,14 +136,17 @@ struct block {
  * Entry for array of filenames used by qsort()
  */
 struct fileent {
-	char  name[NMLEN+1]; /* Name converted to upper/lower case */
-	char  datetime[20];  /* Date/time as a yyyy-mm-dd hh:mm string */
-	uchar type;          /* ProDOS file type */
-	uint  blocks;        /* Size in blocks */
-	ulong eof;           /* EOF position in bytes */
-	uint  order;         /* Hack to make qsort() stable */
-	uchar blockidx;      /* Index of dir block (1,2,3 ...)  */
-	uchar entrynum;	     /* Entry within the block */
+	uchar blockidx;          /* Index of dir block (1,2,3 ...)  */
+	uchar entrynum;	         /* Entry within the block */
+	uint  order;             /* Hack to make qsort() stable */
+// TODO: Can make this a couple bytes smaller
+	union {
+		char  name[NMLEN+1]; /* Name converted to upper/lower case */
+		char  datetime[20];  /* Date/time as a yyyy-mm-dd hh:mm string */
+		uchar type;          /* ProDOS file type */
+		uint  blocks;        /* Size in blocks */
+		ulong eof;           /* EOF position in bytes */
+	};
 };
 
 /*
@@ -236,7 +245,7 @@ int  subdirblocks(uchar device, uint keyblk, struct pd_dirent *ent,
                   uint blocknum, uint blkentries, uint *blkcnt);
 void enqueuesubdir(uint blocknum, uint subdiridx);
 int  readdir(uint device, uint blocknum);
-void buildsorttable(void);
+void buildsorttable(char s);
 int  cmp_name_asc(const void *a, const void *b);
 int  cmp_name_desc(const void *a, const void *b);
 int  cmp_name_asc_ci(const void *a, const void *b);
@@ -1363,9 +1372,9 @@ int readdir(uint device, uint blocknum) {
 /*
  * Build filelist[], the table used by the sorting algorithm.
  */
-void buildsorttable() {
+void buildsorttable(char s) {
 	static char namebuf[NMLEN+1];
-	uint off, blks, eof;
+	uint off;
 	uchar entry, i;
 	struct datetime dt;
 	struct pd_dirent *ent;
@@ -1385,26 +1394,37 @@ void buildsorttable() {
 			ent = (struct pd_dirent*)(dirblkbuf + off);
 
 			if (ent->typ_len != 0) {
-				blks = ent->blksused[0] + 256U * ent->blksused[1];
-				eof = ent->eof[0] + 256L * ent->eof[1] + 65536L * ent->eof[2];
 
-				fixcase(ent->name, namebuf,
-			        	ent->vers, ent->minvers, ent->typ_len & 0x0f);
-
-				bzero(filelist[idx].name, NMLEN + 1);
-				for (i = 0; i < (ent->typ_len & 0x0f); ++i)
-					filelist[idx].name[i] = namebuf[i];
-				filelist[idx].type = ent->type;
 				filelist[idx].blockidx = blkidx;
 				filelist[idx].entrynum = entry;
-				filelist[idx].blocks = blks;
-				filelist[idx].eof = eof;
-
-				readdatetime(do_ctime ? ent->ctime : ent->mtime, &dt);
-				sprintf(filelist[idx].datetime,
-			        	"%04d-%02d-%02d %02d:%02d %s",
-			        	dt.year, dt.month, dt.day, dt.hour, dt.minute,
-			        	(dt.ispd25format ? "*" : " "));
+				switch (tolower(s)) {
+				case 'n':
+				case 'i':
+					fixcase(ent->name, namebuf,
+					        ent->vers, ent->minvers, ent->typ_len & 0x0f);
+					bzero(filelist[idx].name, NMLEN + 1);
+					for (i = 0; i < (ent->typ_len & 0x0f); ++i)
+						filelist[idx].name[i] = namebuf[i];
+					break;
+				case 't':
+					filelist[idx].type = ent->type;
+					break;
+				case 'b':
+					filelist[idx].blocks =
+					  ent->blksused[0] + 256U * ent->blksused[1];
+					break;
+				case 'e':
+					filelist[idx].eof = 
+					  ent->eof[0] + 256L * ent->eof[1] + 65536L * ent->eof[2];
+					break;
+				case 'd':
+					readdatetime(do_ctime ? ent->ctime : ent->mtime, &dt);
+					sprintf(filelist[idx].datetime,
+			        		"%04d-%02d-%02d %02d:%02d %s",
+			        		dt.year, dt.month, dt.day, dt.hour, dt.minute,
+			        		(dt.ispd25format ? "*" : " "));
+					break;
+				}
 				++idx;
 			}
 		}
@@ -1658,6 +1678,7 @@ void sortlist(char s) {
 /*
  * Print the file info stored in filelist[]
  */
+#if 0
 void printlist(void) {
 	uint i, j;
 	hline();
@@ -1679,6 +1700,7 @@ void printlist(void) {
 	}
 	hline();
 }
+#endif
 
 /*
  * Convert block index to block number
@@ -1809,7 +1831,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.59 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.60 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
@@ -1928,10 +1950,6 @@ void processdir(uint device, uint blocknum) {
 	uchar i, errs;
 	flushall();
 	errs = readdir(device, blocknum);
-	buildsorttable();
-//	if (doverbose) {
-//		printlist();
-//	}
 	if ((strlen(fixopts) == 0) && errs) {
 		err(NONFATAL, "Error scanning directory, will not sort\n");
 		goto done;
@@ -1942,6 +1960,7 @@ void processdir(uint device, uint blocknum) {
 		for (i = 0; i < strlen(sortopts); ++i) {
 			if (doverbose)
 				printf("[%c] ", sortopts[i]);
+			buildsorttable(sortopts[i]);
 			sortlist(sortopts[i]);
 		}
 		if (doverbose)
@@ -1949,9 +1968,9 @@ void processdir(uint device, uint blocknum) {
 #ifdef SORT
 		sortblocks(device);
 #endif
-		if (doverbose) {
-			printlist();
-		}
+		//if (doverbose) {
+		//	printlist();
+		//}
 		if (dowrite) {
 			puts("Writing dir ...");
 			errs = writedir(device);
