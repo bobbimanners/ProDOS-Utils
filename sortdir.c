@@ -27,6 +27,7 @@
  * v0.59 Moved creation of filelist[] into buildsorttable(). More bugfix.
  * v0.60 Modified fileent to be a union. Build it for each subsort. Saves RAM.
  * v0.61 Squeezed fileent to be a few bytes smaller. Fixed folder sort.
+ * v0.62 Modified buildsorttable() to update existing filelist[].
  */
 
 //#pragma debug 9
@@ -249,7 +250,7 @@ int  subdirblocks(uchar device, uint keyblk, struct pd_dirent *ent,
 void enqueuesubdir(uint blocknum, uint subdiridx);
 int  readdir(uint device, uint blocknum);
 #ifdef SORT
-void buildsorttable(char s);
+void buildsorttable(char s, uchar callidx);
 int  cmp_name_asc(const void *a, const void *b);
 int  cmp_name_desc(const void *a, const void *b);
 int  cmp_name_asc_ci(const void *a, const void *b);
@@ -1361,8 +1362,11 @@ int readdir(uint device, uint blocknum) {
 
 /*
  * Build filelist[], the table used by the sorting algorithm.
+ * s - character representing the sorting mode
+ * callidx - if 0, the routine populates the table, otherwise it updates
+ *           and existing table
  */
-void buildsorttable(char s) {
+void buildsorttable(char s, uchar callidx) {
 	static char namebuf[NMLEN+1];
 	uint off;
 	uchar entry, i;
@@ -1385,8 +1389,17 @@ void buildsorttable(char s) {
 
 			if (ent->typ_len != 0) {
 
-				filelist[idx].blockidx = blkidx;
-				filelist[idx].entrynum = entry;
+				if (callidx == 0) {
+					/* Build filelist[] on first call for each dir */
+					filelist[idx].blockidx = blkidx;
+					filelist[idx].entrynum = entry;
+				} else {
+					/* On subsequent calls Find existing entry in list and update it */
+					for (idx = 0; idx < numfiles; ++idx)
+						if ((filelist[idx].blockidx == blkidx) &&
+						    (filelist[idx].entrynum == entry))
+							break;
+				}
 				switch (tolower(s)) {
 				case 'n':
 				case 'i':
@@ -1421,7 +1434,8 @@ void buildsorttable(char s) {
 		++blkidx;
 		firstent = 1;
 	}
-	numfiles = idx;
+	if (callidx == 0)
+		numfiles = idx;
 }
 
 /*
@@ -1823,7 +1837,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.61 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.62 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
@@ -1953,7 +1967,7 @@ void processdir(uint device, uint blocknum) {
 		for (i = 0; i < strlen(sortopts); ++i) {
 			if (doverbose)
 				printf("[%c] ", sortopts[i]);
-			buildsorttable(sortopts[i]);
+			buildsorttable(sortopts[i], i);
 			sortlist(sortopts[i]);
 			sortblocks(device);
 		}
