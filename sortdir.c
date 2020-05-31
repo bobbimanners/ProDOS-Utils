@@ -3,8 +3,6 @@
  *
  * Bobbi January-June 2020
  *
- * TODO: Multilevel sort is currently broken. Consider how to fix it in a
- *       memory efficient way.
  * TODO: IDEA you only need one sorteddata block at a time. Do not allocate
  *       until writeout time and use one block buffer.  Iterate through
  *       filelist[] collecting all entries for block 1, 2, 3 in turn.
