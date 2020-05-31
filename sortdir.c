@@ -3,6 +3,8 @@
  *
  * Bobbi January-March 2020
  *
+ * TODO: Obsolete MAXFILES is hardcoded - need a better way to do this
+ * TODO: Check for no memory when allocating aux memory
  * TODO: Enable free list functionality on ProDOS-8
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  * TODO: Trimming unused directory blocks
@@ -17,6 +19,7 @@
  * v0.56 Minor improvements to conditional compilation
  * v0.57 Fixed bugs in aux memory allocation, memory zeroing bug
  * v0.58 Fixed more bugs. Now working properly using aux memory
+ * v0.59 Moved creation of filelist[] into buildsorttable(). More bugfix.
  */
 
 //#pragma debug 9
@@ -39,7 +42,6 @@
 #include <apple2enh.h>
 #include <dio.h>
 
-#undef DEBUG        /* Enable additional debug printout */
 #define CHECK		/* Perform additional integrity checking */
 #define SORT        /* Enable sorting code */
 #undef FREELIST     /* Checking of free list */
@@ -291,8 +293,9 @@ void copyaux(char *src, char *dst, uint len, uchar dir) {
 /* Extremely simple aux memory allocator */
 /* TODO: Check for overflow!!!! */
 char *auxalloc(uint bytes) {
+	char *p = auxp;
 	auxp += bytes;
-	return auxp;
+	return p;
 }
 
 /* TODO: Will need something better */
@@ -386,9 +389,6 @@ void flushall(void) {
  */
 int readdiskblock(uchar device, uint blocknum, char *buf) {
 	int rc;
-#ifdef DEBUG
-	printf("Reading dev %2u block %5u\n", device, blocknum);
-#endif
 #ifdef CHECK
 #ifdef FREELIST
 	if (flloaded)
@@ -418,9 +418,6 @@ int readdiskblock(uchar device, uint blocknum, char *buf) {
  */
 int writediskblock(uchar device, uint blocknum, char *buf) {
 	int rc;
-#ifdef DEBUG
-	printf("Writing dev %2u blk %5u\n", device, blocknum);
-#endif
 	if ((strcmp(currdir, "LIB") == 0) ||
 	    (strcmp(currdir, "LIBRARIES") == 0)) {
 		printf("Not writing library directory %s\n", currdir);
@@ -1073,9 +1070,6 @@ int readdir(uint device, uint blocknum) {
 #ifdef AUXMEM
 	curblk->data = auxalloc(BLKSZ);
 	curblk->sorteddata = auxalloc(BLKSZ);
-	// TODO ZERO sorteddata
-#else
-	bzero(curblk->sorteddata, BLKSZ);
 #endif
 
 #ifdef FREELIST
@@ -1203,8 +1197,9 @@ int readdir(uint device, uint blocknum) {
 #endif
 			blks = ent->blksused[0] + 256U * ent->blksused[1];
 			eof = ent->eof[0] + 256L * ent->eof[1] + 65536L * ent->eof[2];
-			for (i = 0; i < NMLEN + 1; ++i)
-				filelist[numfiles].name[i] = '\0';
+
+/***
+			bzero(filelist[numfiles].name, NMLEN + 1);
 			for (i = 0; i < (ent->typ_len & 0x0f); ++i)
 				filelist[numfiles].name[i] = namebuf[i];
 			filelist[numfiles].type = ent->type;
@@ -1218,6 +1213,7 @@ int readdir(uint device, uint blocknum) {
 			        "%04d-%02d-%02d %02d:%02d %s",
 			        dt.year, dt.month, dt.day, dt.hour, dt.minute,
 			        (dt.ispd25format ? "*" : " "));
+***/
 
 			keyblk = ent->keyptr[0] + 256U * ent->keyptr[1];
 			hdrblk = ent->hdrptr[0] + 256U * ent->hdrptr[1];
@@ -1297,16 +1293,18 @@ int readdir(uint device, uint blocknum) {
 			++entries;
 		}
 		if (blkentries == entperblk) {
+			blocknum = dirblkbuf[0x02] + 256U * dirblkbuf[0x03];
 #ifdef AUXMEM
 			copyaux(dirblkbuf, curblk->data, BLKSZ, TOAUX);
-///			bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
-			copyaux(dirblkbuf, curblk->sorteddata, BLKSZ, TOAUX);
+			bzero(buf, BLKSZ);
+			memcpy(buf, dirblkbuf, PTRSZ);
+			copyaux(buf, curblk->sorteddata, BLKSZ, TOAUX);
 #else
 			memcpy(curblk->data, dirblkbuf, BLKSZ);
-//////			bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
-			memcpy(curblk->sorteddata, dirblkbuf, PTRSZ);
+			bzero(buf, BLKSZ);
+			memcpy(buf, dirblkbuf, PTRSZ);
+			memcpy(curblk->sorteddata, buf, BLKSZ);
 #endif
-			blocknum = dirblkbuf[0x02] + 256U * dirblkbuf[0x03];
 			if (blocknum == 0) {
 				break;
 			}
@@ -1321,9 +1319,6 @@ int readdir(uint device, uint blocknum) {
 #ifdef AUXMEM
 			curblk->data = auxalloc(BLKSZ);
 			curblk->sorteddata = auxalloc(BLKSZ);
-			// TODO: Zero sorteddata
-#else
-			bzero(curblk->sorteddata, BLKSZ);
 #endif
 
 #ifdef FREELIST
@@ -1352,21 +1347,22 @@ int readdir(uint device, uint blocknum) {
 	}
 #ifdef AUXMEM
 	copyaux(dirblkbuf, curblk->data, BLKSZ, TOAUX);
-///	bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
-	copyaux(dirblkbuf, curblk->sorteddata, BLKSZ, TOAUX);
+	bzero(buf, BLKSZ);
+	memcpy(buf, dirblkbuf, PTRSZ);
+	copyaux(buf, curblk->sorteddata, BLKSZ, TOAUX);
 #else
 	memcpy(curblk->data, dirblkbuf, BLKSZ);
-////	bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
-	memcpy(curblk->sorteddata, dirblkbuf, PTRSZ);
+	bzero(buf, BLKSZ);
+	memcpy(buf, dirblkbuf, PTRSZ);
+	memcpy(curblk->sorteddata, buf, BLKSZ);
 #endif
 
 	return errcount - errsbefore;
 }
 
 /*
- * Build filelist[] which the table used by the sorting algorithm.
+ * Build filelist[], the table used by the sorting algorithm.
  */
-#if 0
 void buildsorttable() {
 	static char namebuf[NMLEN+1];
 	uint off, blks, eof;
@@ -1375,8 +1371,8 @@ void buildsorttable() {
 	struct pd_dirent *ent;
 	uint idx = 0;
 	struct block *b = blocks;
-	uchar firstent = 1; /* Skip first entry of first block */
-	uchar blkidx = 0;
+	uchar firstent = 2; /* Skip first entry of first block */
+	uchar blkidx = 1;
 
 	while (b) {
 #ifdef AUXMEM
@@ -1384,9 +1380,8 @@ void buildsorttable() {
 #else
 		memcpy(dirblkbuf, b->data, BLKSZ);
 #endif
-		for (entry = firstent; entry < ENTPERBLK; ++entry) {
-printf("blk %u entry %u\n", blkidx, entry);
-			off = PTRSZ + entry * ENTSZ;
+		for (entry = firstent; entry <= ENTPERBLK; ++entry) {
+			off = PTRSZ + (entry - 1) * entsz;
 			ent = (struct pd_dirent*)(dirblkbuf + off);
 
 			if (ent->typ_len != 0) {
@@ -1396,13 +1391,7 @@ printf("blk %u entry %u\n", blkidx, entry);
 				fixcase(ent->name, namebuf,
 			        	ent->vers, ent->minvers, ent->typ_len & 0x0f);
 
-				printf("%u %u - ", blkidx, entry);
-				fputs(namebuf,stdout);
-				printf("  %u  %u\n", blks, eof);
-
-				for (i = 0; i < NMLEN + 1; ++i)
-					filelist[idx].name[i] = '\0';
-				//bzero(filelist[idx].name, NMLEN + 1);
+				bzero(filelist[idx].name, NMLEN + 1);
 				for (i = 0; i < (ent->typ_len & 0x0f); ++i)
 					filelist[idx].name[i] = namebuf[i];
 				filelist[idx].type = ent->type;
@@ -1421,14 +1410,13 @@ printf("blk %u entry %u\n", blkidx, entry);
 		}
 		b = b->next;
 		++blkidx;
-		firstent = 0;
+		firstent = 1;
 	}
-	numfiles = idx - 1;
+	numfiles = idx;
 }
-#endif
-
 
 #ifdef SORT
+
 /*
  * Compare - filename sort in ascending order
  */
@@ -1584,6 +1572,7 @@ int  cmp_noop(const void *a, const void *b) {
 	struct fileent *bb = (struct fileent*)b;
 	return aa->order - bb->order;
 }
+
 #endif
 
 /*
@@ -1734,7 +1723,7 @@ void copyent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device) {
 	dstptr =  dest->sorteddata + PTRSZ + (dstent-1) * entsz;
 #ifdef AUXMEM
 	copyaux(srcptr, buf2, entsz, FROMAUX);
-	copyaux(buf2, dstptr, entsz, TOAUX);
+	copyaux(buf2, dstptr, entsz-1, TOAUX); // USING SIZE-1 MAKES IT WORK!!!!!
 #else
 	memcpy(dstptr, srcptr, entsz);
 #endif
@@ -1820,7 +1809,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.58 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.59 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
@@ -1939,7 +1928,7 @@ void processdir(uint device, uint blocknum) {
 	uchar i, errs;
 	flushall();
 	errs = readdir(device, blocknum);
-	//buildsorttable();
+	buildsorttable();
 //	if (doverbose) {
 //		printlist();
 //	}
