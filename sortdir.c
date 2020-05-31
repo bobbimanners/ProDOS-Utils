@@ -15,6 +15,7 @@
  * v0.54 Make command line argument handling a compile time option.
  * v0.55 Can use *all* of largest heap block for filelist[]
  * v0.56 Minor improvements to conditional compilation
+ * v0.57 Fixed bugs in aux memory allocation
  */
 
 //#pragma debug 9
@@ -41,7 +42,7 @@
 #define CHECK		/* Perform additional integrity checking */
 #define SORT        /* Enable sorting code */
 #undef FREELIST     /* Checking of free list */
-#define AUXMEM      /* Auxiliary memory support on //e and up */
+#undef AUXMEM      /* Auxiliary memory support on //e and up */
 #undef CMDLINE      /* Command line option parsing */
 
 #define NLEVELS 4	/* Number of nested sorts permitted */
@@ -93,9 +94,11 @@ struct pd_dirent {
 	uchar	hdrptr[2];
 };
 
-#define BLKSZ 512	/* 512 byte blocks */
-#define PTRSZ 4		/* 4 bytes of pointers at beginning of each blk */
-#define FLSZ 8192	/* Bytes required for 64K block free-list */
+#define BLKSZ 512      /* 512 byte blocks */
+#define PTRSZ 4        /* 4 bytes of pointers at beginning of each blk */
+#define ENTSZ 0x27     /* Normal ProDOS directory entry size */
+#define ENTPERBLK 0x0d /* Normal ProDOS dirents per block */
+#define FLSZ 8192      /* Bytes required for 64K block free-list */
 
 /* Exit codes */
 #define EXIT_SUCCESS    0
@@ -158,7 +161,7 @@ struct datetime {
  * Globals
  */
 #ifdef AUXMEM
-#define STARTAUX 0x200
+#define STARTAUX 0x800
 static char *auxp = (char*)STARTAUX;
 #endif
 #ifdef FREELIST
@@ -179,7 +182,7 @@ static uchar dowholedisk = 0;            /* -D whole-disk option */
 static uchar dorecurse = 0;              /* -r recurse option */
 static uchar dowrite = 0;                /* -w write option */
 static uchar doverbose = 0;              /* -v verbose option */
-static uchar dodebug = 0;                /* -V very verbose option */
+static uchar dodebug = 1;                /* -V very verbose option */
 static uchar do_ctime = 0;               /* -k ctime option */
 static uchar dozero = 0;                 /* -z zero free blocks option */
 static char sortopts[NLEVELS+1] = "";    /* -s:abc list of sort options */
@@ -230,6 +233,7 @@ int  subdirblocks(uchar device, uint keyblk, struct pd_dirent *ent,
                   uint blocknum, uint blkentries, uint *blkcnt);
 void enqueuesubdir(uint blocknum, uint subdiridx);
 int  readdir(uint device, uint blocknum);
+void buildsorttable(void);
 int  cmp_name_asc(const void *a, const void *b);
 int  cmp_name_desc(const void *a, const void *b);
 int  cmp_name_asc_ci(const void *a, const void *b);
@@ -300,13 +304,13 @@ void freeallaux() {
 /* Horizontal line */
 void hline(void) {
 	uint i;
-	for (i=0; i<80; ++i)
+	for (i = 0; i < 80; ++i)
 		putchar('-');
 }
 
 void hline2(void) {
 	uint i;
-	for (i=0; i<80; ++i)
+	for (i = 0; i < 80; ++i)
 		putchar('=');
 }
 
@@ -455,12 +459,12 @@ void fixcase(char *in, char *out, uchar minvers, uchar vers, uchar len) {
 		return;
 	}
 	vers <<= 1;
-	for (i=0; i<7; ++i) {
+	for (i = 0; i < 7; ++i) {
 		out[idx] = ((vers&0x80) ? tolower(in[idx]) : in[idx]);
 		++idx;
 		vers <<= 1;
 	}
-	for (i=0; i<8; ++i) {
+	for (i = 0; i < 8; ++i) {
 		out[idx] = ((minvers&0x80) ? tolower(in[idx]) : in[idx]);
 		++idx;
 		minvers <<= 1;
@@ -477,12 +481,12 @@ void lowercase(char *p, uchar len, uchar *minvers, uchar *vers) {
 	uchar idx = 0;
 	*vers = 0x01;
 	*minvers = 0x00;
-	for (i=0; i<7; ++i) {
+	for (i = 0; i < 7; ++i) {
 		*vers <<= 1;
 		if ((idx < len) && isalpha(p[idx++]))
 			*vers |= 0x01;
 	}
-	for (i=0; i<8; ++i) {
+	for (i = 0; i < 8; ++i) {
 		*minvers <<= 1;
 		if ((idx < len) && isalpha(p[idx++]))
 			*minvers |= 0x01;
@@ -510,7 +514,7 @@ void initialcase(uchar mode, char *p, uchar len, uchar *minvers, uchar *vers) {
 	uchar capsflag = 1;
 	*vers = 0x01;
 	*minvers = 0x00;
-	for (i=0; i<7; ++i) {
+	for (i = 0; i < 7; ++i) {
 		*vers <<= 1;
 		if ((idx < len) && isalpha(p[idx++]))
 			if (!capsflag)
@@ -520,7 +524,7 @@ void initialcase(uchar mode, char *p, uchar len, uchar *minvers, uchar *vers) {
 		else
 			capsflag = 0;
 	}
-	for (i=0; i<8; ++i) {
+	for (i = 0; i < 8; ++i) {
 		*minvers <<= 1;
 		if ((idx < len) && isalpha(p[idx++]))
 			if (!capsflag)
@@ -726,7 +730,7 @@ int readfreelist(uchar device) {
 	if ((flsize % 4096) >0)
 		++flsize;
 	p = (char*)freelist;
-	for (i=0; i<flsize; ++i) {
+	for (i = 0; i < flsize; ++i) {
 		markused(flblk);
 		if (readdiskblock(device, flblk++, p) == -1) {
 			err(NONFATAL, "Error reading free list");
@@ -822,7 +826,7 @@ int saplingblocks(uchar device, uint keyblk, uint *blkcnt) {
 		return -1;
 	}
 	*blkcnt = 1;
-	for (i=0; i<256; ++i) {
+	for (i = 0; i < 256; ++i) {
 		p = buf[i] + 256U * buf[i+256];
 		if (p) {
 #ifdef FREELIST
@@ -847,7 +851,7 @@ int treeblocks(uchar device, uint keyblk, uint *blkcnt) {
 		return -1;
 	}
 	*blkcnt = 1;
-	for (i=0; i<256; ++i) {
+	for (i = 0; i < 256; ++i) {
 		p = buf2[i] + 256U * buf2[i+256];
 		if (p) {
 			if (saplingblocks(device, p, &b) == 0)
@@ -991,10 +995,10 @@ int  subdirblocks(uchar device, uint keyblk, struct pd_dirent *ent,
 			hdr->parentry = blkentries;
 		}
 	}
-	if (parentlen != 0x27) {
+	if (parentlen != ENTSZ) {
 		err(NONFATAL, "Bad parent entry length");
 		if (askfix() == 1) {
-			hdr->parentlen = 0x27;
+			hdr->parentlen = ENTSZ;
 		}
 	}
 	dirname = buf + 0x05;
@@ -1040,8 +1044,7 @@ void enqueuesubdir(uint blocknum, uint subdiridx) {
 }
 
 /*
- * Read a directory, store the raw directory blocks in a linked list
- * and build filelist[] in preparation for sorting. 
+ * Read a directory, store the raw directory blocks in a linked list.
  * device is the device number containing the directory
  * blocknum is the block number of the first block of the directory
  */
@@ -1060,11 +1063,20 @@ int readdir(uint device, uint blocknum) {
 	numfiles = 0;
 
 	blocks = (struct block*)malloc(sizeof(struct block));
+printf("FIRST BLOCK %d at %p\n", blocknum, blocks);
 	if (!blocks)
 		err(FATALALLOC, "No memory!");
 	curblk = blocks;
 	curblk->next = NULL;
 	curblk->blocknum = blocknum;
+
+#ifdef AUXMEM
+	curblk->data = auxalloc(BLKSZ);
+	curblk->sorteddata = auxalloc(BLKSZ);
+	// TODO ZERO sorteddata
+#else
+	bzero(curblk->sorteddata, BLKSZ);
+#endif
 
 #ifdef FREELIST
 	checkblock(blocknum, "Directory");
@@ -1089,11 +1101,11 @@ int readdir(uint device, uint blocknum) {
 	hline();
 
 #ifdef CHECK
-	if (entsz != 0x27) {
+	if (entsz != ENTSZ) {
 		err(NONFATAL, "Error - bad entry size");
 		return 1;
 	}
-	if (entperblk != 0x0d) {
+	if (entperblk != ENTPERBLK) {
 		err(NONFATAL, "Error - bad entries/block");
 		return 1;
 	}
@@ -1191,9 +1203,9 @@ int readdir(uint device, uint blocknum) {
 #endif
 			blks = ent->blksused[0] + 256U * ent->blksused[1];
 			eof = ent->eof[0] + 256L * ent->eof[1] + 65536L * ent->eof[2];
-			for (i=0; i<NMLEN+1; ++i)
+			for (i = 0; i < NMLEN + 1; ++i)
 				filelist[numfiles].name[i] = '\0';
-			for (i=0; i<(ent->typ_len & 0x0f); ++i)
+			for (i = 0; i < (ent->typ_len & 0x0f); ++i)
 				filelist[numfiles].name[i] = namebuf[i];
 			filelist[numfiles].type = ent->type;
 			filelist[numfiles].blockidx = blkcnt;
@@ -1285,30 +1297,40 @@ int readdir(uint device, uint blocknum) {
 			++entries;
 		}
 		if (blkentries == entperblk) {
-			blocknum = dirblkbuf[0x02] + 256U * dirblkbuf[0x03];
-			if (blocknum == 0) {
-				break;
-			}
-			curblk->next = (struct block*)malloc(sizeof(struct block));
-			if (!curblk->next)
-				err(FATALALLOC, "No memory!");
-			curblk = curblk->next;
-			curblk->next = NULL;
-			curblk->blocknum = blocknum;
-			++blkcnt;
-#ifdef FREELIST
-			checkblock(blocknum, "Directory");
-#endif
 #ifdef AUXMEM
 			copyaux(dirblkbuf, curblk->data, BLKSZ, TOAUX);
 			bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
 			copyaux(dirblkbuf, curblk->sorteddata, BLKSZ, TOAUX);
 #else
 			memcpy(curblk->data, dirblkbuf, BLKSZ);
-			bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
+//////			bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
 			memcpy(curblk->sorteddata, dirblkbuf, PTRSZ);
 #endif
-			if ( readdiskblock(device, blocknum, dirblkbuf) == -1) {
+			blocknum = dirblkbuf[0x02] + 256U * dirblkbuf[0x03];
+			if (blocknum == 0) {
+				break;
+			}
+			curblk->next = (struct block*)malloc(sizeof(struct block));
+printf("NEXT BLOCK %d at %p\n", blocknum, curblk->next);
+			if (!curblk->next)
+				err(FATALALLOC, "No memory!");
+			curblk = curblk->next;
+			curblk->next = NULL;
+			curblk->blocknum = blocknum;
+			++blkcnt;
+
+#ifdef AUXMEM
+			curblk->data = auxalloc(BLKSZ);
+			curblk->sorteddata = auxalloc(BLKSZ);
+			// TODO: Zero sorteddata
+#else
+			bzero(curblk->sorteddata, BLKSZ);
+#endif
+
+#ifdef FREELIST
+			checkblock(blocknum, "Directory");
+#endif
+			if (readdiskblock(device, blocknum, dirblkbuf) == -1) {
 				err(NONFATAL,"Error reading dir blk %d",
 				    blkcnt);
 				return 1;
@@ -1335,12 +1357,77 @@ int readdir(uint device, uint blocknum) {
 	copyaux(dirblkbuf, curblk->sorteddata, BLKSZ, TOAUX);
 #else
 	memcpy(curblk->data, dirblkbuf, BLKSZ);
-	bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
+////	bzero(dirblkbuf + PTRSZ, BLKSZ - PTRSZ);
 	memcpy(curblk->sorteddata, dirblkbuf, PTRSZ);
 #endif
 
 	return errcount - errsbefore;
 }
+
+/*
+ * Build filelist[] which the table used by the sorting algorithm.
+ */
+#if 0
+void buildsorttable() {
+	static char namebuf[NMLEN+1];
+	uint off, blks, eof;
+	uchar entry, i;
+	struct datetime dt;
+	struct pd_dirent *ent;
+	uint idx = 0;
+	struct block *b = blocks;
+	uchar firstent = 1; /* Skip first entry of first block */
+	uchar blkidx = 0;
+
+	while (b) {
+#ifdef AUXMEM
+		copyaux(b->data, dirblkbuf, BLKSZ, FROMAUX);
+#else
+		memcpy(dirblkbuf, b->data, BLKSZ);
+#endif
+		for (entry = firstent; entry < ENTPERBLK; ++entry) {
+printf("blk %u entry %u\n", blkidx, entry);
+			off = PTRSZ + entry * ENTSZ;
+			ent = (struct pd_dirent*)(dirblkbuf + off);
+
+			if (ent->typ_len != 0) {
+				blks = ent->blksused[0] + 256U * ent->blksused[1];
+				eof = ent->eof[0] + 256L * ent->eof[1] + 65536L * ent->eof[2];
+
+				fixcase(ent->name, namebuf,
+			        	ent->vers, ent->minvers, ent->typ_len & 0x0f);
+
+				printf("%u %u - ", blkidx, entry);
+				fputs(namebuf,stdout);
+				printf("  %u  %u\n", blks, eof);
+
+				for (i = 0; i < NMLEN + 1; ++i)
+					filelist[idx].name[i] = '\0';
+				//bzero(filelist[idx].name, NMLEN + 1);
+				for (i = 0; i < (ent->typ_len & 0x0f); ++i)
+					filelist[idx].name[i] = namebuf[i];
+				filelist[idx].type = ent->type;
+				filelist[idx].blockidx = blkidx;
+				filelist[idx].entrynum = entry;
+				filelist[idx].blocks = blks;
+				filelist[idx].eof = eof;
+
+				readdatetime(do_ctime ? ent->ctime : ent->mtime, &dt);
+				sprintf(filelist[idx].datetime,
+			        	"%04d-%02d-%02d %02d:%02d %s",
+			        	dt.year, dt.month, dt.day, dt.hour, dt.minute,
+			        	(dt.ispd25format ? "*" : " "));
+				++idx;
+			}
+		}
+		b = b->next;
+		++blkidx;
+		firstent = 0;
+	}
+	numfiles = idx - 1;
+}
+#endif
+
 
 #ifdef SORT
 /*
@@ -1510,7 +1597,7 @@ void sortlist(char s) {
 #ifndef SORT
 	return;
 #else
-	for (i=0; i<numfiles; ++i) {
+	for (i = 0; i < numfiles; ++i) {
 		filelist[i].order = i;
 	}
 	switch (s) {
@@ -1591,7 +1678,7 @@ void printlist(void) {
 		puts("Created");
 	else
 		puts("Modified");
-	for (i=0; i<numfiles; ++i) {
+	for (i = 0; i < numfiles; ++i) {
 		printf("   %03u    %02u   %02x : %s",
 		       filelist[i].blockidx,
 		       filelist[i].entrynum,
@@ -1612,7 +1699,7 @@ void printlist(void) {
 uint blockidxtoblocknum(uint idx) {
 	uint i;
 	struct block *p = blocks;
-	for (i=1; i<idx; ++i)
+	for (i = 1; i < idx; ++i)
 		if (p)
 			p = p->next;
 		else
@@ -1683,7 +1770,7 @@ void sortblocks(uint device) {
 	uchar destblk = 1;
 	uchar destentry = 2; /* Skip header on first block */
 	copyent(1, 1, 1, 1, device); /* Copy directory header */
-	for(i=0; i<numfiles; ++i) {
+	for(i = 0; i < numfiles; ++i) {
 		if (dodebug)
 			puts(filelist[i].name);
 		copyent(filelist[i].blockidx, filelist[i].entrynum,
@@ -1699,18 +1786,19 @@ void sortblocks(uint device) {
  * Write out the sorted directory
  */
 int writedir(uchar device) {
-	struct block *i = blocks;
-	while (i) {
+	struct block *b = blocks;
+	while (b) {
+printf("WRITING BLOCK %d from %p\n", b->blocknum, b);
 #ifdef AUXMEM
-		copyaux(i->sorteddata, dirblkbuf, BLKSZ, FROMAUX);
-		if (writediskblock(device, i->blocknum, dirblkbuf) == -1) {
+		copyaux(b->sorteddata, dirblkbuf, BLKSZ, FROMAUX);
+		if (writediskblock(device, b->blocknum, dirblkbuf) == -1) {
 #else
-		if (writediskblock(device, i->blocknum, i->sorteddata) == -1) {
+		if (writediskblock(device, b->blocknum, b->sorteddata) == -1) {
 #endif
-			err(NONFATAL, "Can't write block %u", i->blocknum);
+			err(NONFATAL, "Can't write block %u", b->blocknum);
 			return 1;
 		}
-		i = i->next;
+		b = b->next;
 	}
 	return 0;
 }
@@ -1734,7 +1822,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.56 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.57 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
@@ -1853,6 +1941,7 @@ void processdir(uint device, uint blocknum) {
 	uchar i, errs;
 	flushall();
 	errs = readdir(device, blocknum);
+	//buildsorttable();
 //	if (doverbose) {
 //		printlist();
 //	}
@@ -1863,7 +1952,7 @@ void processdir(uint device, uint blocknum) {
 	if (strlen(sortopts) > 0) {
 		if (doverbose)
 			fputs("Sorting: ", stdout);
-		for (i=0; i<strlen(sortopts); ++i) {
+		for (i = 0; i < strlen(sortopts); ++i) {
 			if (doverbose)
 				printf("[%c] ", sortopts[i]);
 			sortlist(sortopts[i]);
@@ -1898,13 +1987,13 @@ void checkfreeandused(uchar device) {
 #ifdef FREELIST
 	uint i, freeblks = 0;
 	printf("Total blks\t%u\n", totblks);
-	for (i=0; i<totblks; ++i)
+	for (i = 0; i < totblks; ++i)
 		if (isfree(i))
 			++freeblks;
 	printf("Free blks\t%u\n", freeblks);
 //	printf("Percentage full\t\t%.1f\n",
 //	       100.0 * (float)(totblks - freeblks) / totblks);
-	for (i=0; i<totblks; ++i) {
+	for (i = 0; i < totblks; ++i) {
 		uint idx = i / 8;
 		if (!(freelist[idx] ^ usedlist[i]))	/* Speed-up */
 			continue;
@@ -1955,7 +2044,7 @@ void zeroblock(uchar device, uint blocknum) {
 void zerofreeblocks(uchar device, uint freeblks) {
 	uint i, step = freeblks / 60, ctr = 0;
 	puts("Zeroing free blocks ...");
-	for (i=0; i<totblks; ++i)
+	for (i = 0; i < totblks; ++i)
 		if (isfree(i)) {
 			zeroblock(device, i);
 			++ctr;
