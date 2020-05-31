@@ -1,14 +1,14 @@
 /*
  * SORTDIR - for Apple II (ProDOS)
  *
- * Bobbi January-March 2020
+ * Bobbi January-June 2020
  *
+ * TODO: Multilevel sort is currently broken. Consider how to fix it in a
+ *       memory efficient way.
  * TODO: IDEA you only need one sorteddata block at a time. Do not allocate
  *       until writeout time and use one block buffer.  Iterate through
  *       filelist[] collecting all entries for block 1, 2, 3 in turn.
  *       Huge aux memory savings!!
- * TODO: filent can be a couple bytes smaller.
- * TODO: Obsolete MAXFILES is hardcoded - need a better way to do this
  * TODO: Check for no memory when allocating aux memory
  * TODO: Enable free list functionality on ProDOS-8
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
@@ -19,13 +19,14 @@
  * v0.51 Made buf[] and buf2[] dynamic.
  * v0.52 Support for aux memory.
  * v0.53 Auto-sizing of filelist[] to fit available memory.
- * v0.54 Make command line argument handling a compile time option
- * v0.55 Can use *all* of largest heap block for filelist[]
- * v0.56 Minor improvements to conditional compilation
- * v0.57 Fixed bugs in aux memory allocation, memory zeroing bug
- * v0.58 Fixed more bugs. Now working properly using aux memory
+ * v0.54 Make command line argument handling a compile time option.
+ * v0.55 Can use *all* of largest heap block for filelist[].
+ * v0.56 Minor improvements to conditional compilation.
+ * v0.57 Fixed bugs in aux memory allocation, memory zeroing bug.
+ * v0.58 Fixed more bugs. Now working properly using aux memory.
  * v0.59 Moved creation of filelist[] into buildsorttable(). More bugfix.
  * v0.60 Modified fileent to be a union. Build it for each subsort. Saves RAM.
+ * v0.61 Squeezed fileent to be a few bytes smaller. Fixed folder sort.
  */
 
 //#pragma debug 9
@@ -61,7 +62,6 @@ typedef unsigned int  uint;
 typedef unsigned long ulong;
 
 #define NMLEN 15	/* Length of filename */
-#define MAXFILES 220	/* Max files per directory */
 
 /*
  * ProDOS directory header
@@ -138,15 +138,17 @@ struct block {
 struct fileent {
 	uchar blockidx;          /* Index of dir block (1,2,3 ...)  */
 	uchar entrynum;	         /* Entry within the block */
-	uint  order;             /* Hack to make qsort() stable */
-// TODO: Can make this a couple bytes smaller
 	union {
-		char  name[NMLEN+1]; /* Name converted to upper/lower case */
-		char  datetime[20];  /* Date/time as a yyyy-mm-dd hh:mm string */
+		char  name[NMLEN-2]; /* Name converted to upper/lower case */
+		char  datetime[12+1];/* Date/time as a yyyymmddhhmm string */
 		uchar type;          /* ProDOS file type */
 		uint  blocks;        /* Size in blocks */
 		ulong eof;           /* EOF position in bytes */
 	};
+	/* NOTE: Because name is unique we do not need the order field to make
+	 * the sort stable, so we can let the name buffer overflow by 2 bytes
+	 */
+	uint  order;             /* Hack to make qsort() stable */
 };
 
 /*
@@ -186,6 +188,7 @@ static char currdir[NMLEN+1];    /* Name of directory currently processed */
 static struct block *blocks = NULL;
 static struct dirblk *dirs = NULL;
 static uint numfiles;
+static uint maxfiles;                    /* Size of filelist[] */
 static uchar entsz;                      /* Bytes per file entry */
 static uchar entperblk;                  /* Number of entries per block */
 static uint errcount = 0;                /* Error counter */
@@ -245,6 +248,7 @@ int  subdirblocks(uchar device, uint keyblk, struct pd_dirent *ent,
                   uint blocknum, uint blkentries, uint *blkcnt);
 void enqueuesubdir(uint blocknum, uint subdiridx);
 int  readdir(uint device, uint blocknum);
+#ifdef SORT
 void buildsorttable(char s);
 int  cmp_name_asc(const void *a, const void *b);
 int  cmp_name_desc(const void *a, const void *b);
@@ -262,6 +266,7 @@ int  cmp_eof_asc(const void *a, const void *b);
 int  cmp_eof_desc(const void *a, const void *b);
 int  cmp_noop(const void *a, const void *b);
 void sortlist(char s);
+#endif
 void printlist(void);
 uint blockidxtoblocknum(uint idx);
 void copyent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device);
@@ -1207,23 +1212,6 @@ int readdir(uint device, uint blocknum) {
 			blks = ent->blksused[0] + 256U * ent->blksused[1];
 			eof = ent->eof[0] + 256L * ent->eof[1] + 65536L * ent->eof[2];
 
-/***
-			bzero(filelist[numfiles].name, NMLEN + 1);
-			for (i = 0; i < (ent->typ_len & 0x0f); ++i)
-				filelist[numfiles].name[i] = namebuf[i];
-			filelist[numfiles].type = ent->type;
-			filelist[numfiles].blockidx = blkcnt;
-			filelist[numfiles].entrynum = blkentries;
-			filelist[numfiles].blocks = blks;
-			filelist[numfiles].eof = eof;
-
-			readdatetime(do_ctime ? ent->ctime : ent->mtime, &dt);
-			sprintf(filelist[numfiles].datetime,
-			        "%04d-%02d-%02d %02d:%02d %s",
-			        dt.year, dt.month, dt.day, dt.hour, dt.minute,
-			        (dt.ispd25format ? "*" : " "));
-***/
-
 			keyblk = ent->keyptr[0] + 256U * ent->keyptr[1];
 			hdrblk = ent->hdrptr[0] + 256U * ent->hdrptr[1];
 #ifdef CHECK
@@ -1289,7 +1277,7 @@ int readdir(uint device, uint blocknum) {
 			}
 #endif
 			++numfiles;
-			if (numfiles == MAXFILES) {
+			if (numfiles == maxfiles) {
 				err(NONFATAL, "Too many files!\n");
 				return 1;
 			}
@@ -1369,6 +1357,8 @@ int readdir(uint device, uint blocknum) {
 	return errcount - errsbefore;
 }
 
+#ifdef SORT
+
 /*
  * Build filelist[], the table used by the sorting algorithm.
  */
@@ -1402,10 +1392,11 @@ void buildsorttable(char s) {
 				case 'i':
 					fixcase(ent->name, namebuf,
 					        ent->vers, ent->minvers, ent->typ_len & 0x0f);
-					bzero(filelist[idx].name, NMLEN + 1);
+					bzero(filelist[idx].name, NMLEN);
 					for (i = 0; i < (ent->typ_len & 0x0f); ++i)
 						filelist[idx].name[i] = namebuf[i];
 					break;
+				case 'f':
 				case 't':
 					filelist[idx].type = ent->type;
 					break;
@@ -1419,10 +1410,8 @@ void buildsorttable(char s) {
 					break;
 				case 'd':
 					readdatetime(do_ctime ? ent->ctime : ent->mtime, &dt);
-					sprintf(filelist[idx].datetime,
-			        		"%04d-%02d-%02d %02d:%02d %s",
-			        		dt.year, dt.month, dt.day, dt.hour, dt.minute,
-			        		(dt.ispd25format ? "*" : " "));
+					sprintf(filelist[idx].datetime, "%04d%02d%02d%02d%02d",
+			        		dt.year, dt.month, dt.day, dt.hour, dt.minute);
 					break;
 				}
 				++idx;
@@ -1434,8 +1423,6 @@ void buildsorttable(char s) {
 	}
 	numfiles = idx;
 }
-
-#ifdef SORT
 
 /*
  * Compare - filename sort in ascending order
@@ -1593,21 +1580,25 @@ int  cmp_noop(const void *a, const void *b) {
 	return aa->order - bb->order;
 }
 
-#endif
-
 /*
  * Sort filelist[]
  * s defines the field to sort on
  */
 void sortlist(char s) {
 	uint i;
+	char ss = tolower(s);
 
-#ifndef SORT
-	return;
-#else
-	for (i = 0; i < numfiles; ++i) {
-		filelist[i].order = i;
+	/*
+	 * We only populate the order field when NOT sorting by name.
+	 * This lets us save two bytes by overflowing the name field into the
+	 * order field.
+	 */
+	if ((ss != 'n') && (ss != 'i')) {
+		for (i = 0; i < numfiles; ++i) {
+			filelist[i].order = i;
+		}
 	}
+
 	switch (s) {
 	case 'n':
 		qsort(filelist, numfiles, sizeof(struct fileent),
@@ -1672,8 +1663,9 @@ void sortlist(char s) {
 	default:
 		err(FATALBADARG, "Invalid sort option");
 	}
-#endif
 }
+
+#endif
 
 /*
  * Print the file info stored in filelist[]
@@ -1831,7 +1823,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.60 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.61 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
@@ -1954,6 +1946,7 @@ void processdir(uint device, uint blocknum) {
 		err(NONFATAL, "Error scanning directory, will not sort\n");
 		goto done;
 	}
+#ifdef SORT
 	if (strlen(sortopts) > 0) {
 		if (doverbose)
 			fputs("Sorting: ", stdout);
@@ -1962,12 +1955,10 @@ void processdir(uint device, uint blocknum) {
 				printf("[%c] ", sortopts[i]);
 			buildsorttable(sortopts[i]);
 			sortlist(sortopts[i]);
+			sortblocks(device);
 		}
 		if (doverbose)
 			putchar('\n');
-#ifdef SORT
-		sortblocks(device);
-#endif
 		//if (doverbose) {
 		//	printlist();
 		//}
@@ -1977,6 +1968,7 @@ void processdir(uint device, uint blocknum) {
 		} else
 			puts("** NOT writing dir");
 	}
+#endif
 done:
 	freeblocks();
 #ifdef AUXMEM
@@ -2179,9 +2171,9 @@ int main() {
 	buf2 =  (char*)malloc(sizeof(char) * BLKSZ);
 	dirblkbuf = (char*)malloc(sizeof(char) * BLKSZ);
 	//printf("\nHeap: %u %u\n", _heapmemavail(), _heapmaxavail());
-	blk = _heapmaxavail() / sizeof(struct fileent);
-	printf("[%u]\n", blk);
-	filelist = (struct fileent*)malloc(sizeof(struct fileent) * blk);
+	maxfiles = _heapmaxavail() / sizeof(struct fileent);
+	printf("[%u]\n", maxfiles);
+	filelist = (struct fileent*)malloc(sizeof(struct fileent) * maxfiles);
 
 #ifdef CMDLINE
 	parseargs();
