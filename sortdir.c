@@ -26,6 +26,7 @@
  * v0.60 Modified fileent to be a union. Build it for each subsort. Saves RAM.
  * v0.61 Squeezed fileent to be a few bytes smaller. Fixed folder sort.
  * v0.62 Modified buildsorttable() to update existing filelist[].
+ * v0.63 Made code work properly with #undef CHECK.
  */
 
 //#pragma debug 9
@@ -203,12 +204,12 @@ static char sortopts[NLEVELS+1] = "";    /* -s:abc list of sort options */
 static char caseopts[2] = "";            /* -c:x case conversion option */
 static char fixopts[2] = "";             /* -f:x fix mode option */
 static char dateopts[2] = "";            /* -d:x date conversion option */
-static struct fileent *filelist;         /* Used for qsort() */
 
 // Allocated dynamically in main()
 static char *buf;                        /* General purpose scratch buffer */
 static char *buf2;                       /* General purpose scratch buffer */
 static char *dirblkbuf;                  /* Used for reading directory blocks */
+static struct fileent *filelist;         /* Used for qsort() */
 
 /* Prototypes */
 #ifdef AUXMEM
@@ -239,12 +240,14 @@ int  isused(uint blk);
 void markused(uint blk);
 void checkblock(uint blk, char *msg);
 #endif
+#ifdef CHECK
 int  seedlingblocks(uchar device, uint keyblk, uint *blkcnt);
 int  saplingblocks(uchar device, uint keyblk, uint *blkcnt);
 int  treeblocks(uchar device, uint keyblk, uint *blkcnt);
 int  forkblocks(uchar device, uint keyblk, uint *blkcnt);
 int  subdirblocks(uchar device, uint keyblk, struct pd_dirent *ent,
                   uint blocknum, uint blkentries, uint *blkcnt);
+#endif
 void enqueuesubdir(uint blocknum, uint subdiridx);
 int  readdir(uint device, uint blocknum);
 #ifdef SORT
@@ -433,7 +436,7 @@ int writediskblock(uchar device, uint blocknum, char *buf) {
 	int rc;
 	if ((strcmp(currdir, "LIB") == 0) ||
 	    (strcmp(currdir, "LIBRARIES") == 0)) {
-		printf("Not writing library directory %s\n", currdir);
+		printf("Not writing lib dir %s\n", currdir);
 		return 0;
 	}
 	flushall();
@@ -813,6 +816,8 @@ void checkblock(uint blk, char *msg) {
 
 #endif
 
+#ifdef CHECK
+
 /*
  * Count the blocks in a seedling file
  */
@@ -1033,6 +1038,8 @@ int  subdirblocks(uchar device, uint keyblk, struct pd_dirent *ent,
 	return 0;
 }
 
+#endif
+
 /*
  * Record the keyblock of a subdirectory to be processed subsequently
  * blocknum is the block number of the subdirectory keyblock
@@ -1182,7 +1189,6 @@ int readdir(uint device, uint blocknum) {
 			fixcase(ent->name, namebuf,
 			        ent->vers, ent->minvers, ent->typ_len & 0x0f);
 
-#ifdef CHECK
 			switch (ent->typ_len & 0xf0) {
 			case 0x10:
 				fputs("Seed  ", stdout);
@@ -1207,7 +1213,7 @@ int readdir(uint device, uint blocknum) {
 				break;
 			}
 			fputs(namebuf, stdout);
-#endif
+
 			blks = ent->blksused[0] + 256U * ent->blksused[1];
 			eof = ent->eof[0] + 256L * ent->eof[1] + 65536L * ent->eof[2];
 
@@ -1283,7 +1289,11 @@ int readdir(uint device, uint blocknum) {
 			if (errcount == errsbeforeent) {
 				for (i = 0; i < 53 - strlen(namebuf); ++i)
 					putchar(' ');
+#ifdef CHECK
 				printf("%5u blocks   [ OK ]", blks);
+#else
+				printf("%5u blocks\n", blks);
+#endif
 			} else
 				putchar('\n');
 			++entries;
@@ -1835,7 +1845,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.62 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.63 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
