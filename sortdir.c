@@ -28,6 +28,7 @@
  * v0.62 Modified buildsorttable() to update existing filelist[].
  * v0.63 Made code work properly with #undef CHECK.
  * v0.64 Fixed overflow in file count (entries). Added check to auxalloc().
+ * v0.65 Fixed length passed to AUXMOVE in copyaux().
  */
 
 //#pragma debug 9
@@ -299,7 +300,7 @@ void copyaux(char *src, char *dst, uint len, uchar dir) {
 	char **a2 = (char**)0x3e;
 	char **a4 = (char**)0x42;
 	*a1 = src;
-	*a2 = src + len;
+	*a2 = src + len - 1; // AUXMOVE moves length+1 bytes!!
 	*a4 = dst;
 	if (dir == TOAUX) {
 		__asm__("sec");       // Copy main->aux
@@ -311,7 +312,6 @@ void copyaux(char *src, char *dst, uint len, uchar dir) {
 }
 
 /* Extremely simple aux memory allocator */
-/* TODO: Check for overflow!!!! */
 char *auxalloc(uint bytes) {
 	char *p = auxp;
 	auxp += bytes;
@@ -321,7 +321,7 @@ char *auxalloc(uint bytes) {
 	return p;
 }
 
-/* TODO: Will need something better */
+/* Free all aux memory */
 void freeallaux() {
 	auxp = (char*)STARTAUX;
 }
@@ -1765,7 +1765,7 @@ void copyent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device) {
 	dstptr =  dest->sorteddata + PTRSZ + (dstent-1) * entsz;
 #ifdef AUXMEM
 	copyaux(srcptr, buf2, entsz, FROMAUX);
-	copyaux(buf2, dstptr, entsz-1, TOAUX); // USING SIZE-1 MAKES IT WORK!!!!!
+	copyaux(buf2, dstptr, entsz, TOAUX);
 #else
 	memcpy(dstptr, srcptr, entsz);
 #endif
@@ -1851,7 +1851,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.64 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.65 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
