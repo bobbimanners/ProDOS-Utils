@@ -27,7 +27,7 @@
  * v0.61 Squeezed fileent to be a few bytes smaller. Fixed folder sort.
  * v0.62 Modified buildsorttable() to update existing filelist[].
  * v0.63 Made code work properly with #undef CHECK.
- * v0.64 Fixed overflow in file count (entries).
+ * v0.64 Fixed overflow in file count (entries). Added check to auxalloc().
  */
 
 //#pragma debug 9
