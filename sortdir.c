@@ -7,7 +7,7 @@
  *       until writeout time and use one block buffer.  Iterate through
  *       filelist[] collecting all entries for block 1, 2, 3 in turn.
  *       Huge aux memory savings!!
- * TODO: Check for no memory when allocating aux memory
+ * TODO: Get working on drives >2 (S7D3, S7D4 etc.)
  * TODO: Enable free list functionality on ProDOS-8
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  * TODO: Trimming unused directory blocks
@@ -27,6 +27,7 @@
  * v0.61 Squeezed fileent to be a few bytes smaller. Fixed folder sort.
  * v0.62 Modified buildsorttable() to update existing filelist[].
  * v0.63 Made code work properly with #undef CHECK.
+ * v0.64 Fixed overflow in file count (entries).
  */
 
 //#pragma debug 9
@@ -175,19 +176,20 @@ struct datetime {
  * Globals
  */
 #ifdef AUXMEM
-#define STARTAUX 0x800
-static char *auxp = (char*)STARTAUX;
+#define STARTAUX 0x0800
+#define ENDAUX   0xbfff
+static char *auxp = (char*)STARTAUX;     /* Pointer for allocating aux mem */
 #endif
 #ifdef FREELIST
-static uint totblks;             /* Total # blocks on volume */
-static uchar *freelist;          /* Free-list bitmap */
-static uchar *usedlist;          /* Bit map of used blocks */
-static uchar flloaded = 0;       /* 1 if free-list has been loaded */
+static uint totblks;                     /* Total # blocks on volume */
+static uchar *freelist;                  /* Free-list bitmap */
+static uchar *usedlist;                  /* Bit map of used blocks */
+static uchar flloaded = 0;               /* 1 if free-list has been loaded */
 #endif
-static char currdir[NMLEN+1];    /* Name of directory currently processed */
-static struct block *blocks = NULL;
-static struct dirblk *dirs = NULL;
-static uint numfiles;
+static char currdir[NMLEN+1];            /* Name of current directory */
+static struct block *blocks = NULL;      /* List of directory disk blocks */
+static struct dirblk *dirs = NULL;       /* List of key blocks of subdirs */
+static uint numfiles;                    /* Number of files in current dir */
 static uint maxfiles;                    /* Size of filelist[] */
 static uchar entsz;                      /* Bytes per file entry */
 static uchar entperblk;                  /* Number of entries per block */
@@ -285,6 +287,8 @@ void usage(void);
 void parseargs(void);
 #endif
 
+enum errtype {WARN, NONFATAL, FATAL, FATALALLOC, FATALBADARG, FINISHED};
+
 #ifdef AUXMEM
 
 /* Aux memory copy routine */
@@ -311,6 +315,9 @@ void copyaux(char *src, char *dst, uint len, uchar dir) {
 char *auxalloc(uint bytes) {
 	char *p = auxp;
 	auxp += bytes;
+	//printf("0x%p\n", auxp);
+	if (auxp > (char*)ENDAUX)
+		err(FATAL, "Out of aux mem");
 	return p;
 }
 
@@ -321,20 +328,19 @@ void freeallaux() {
 
 #endif
 
-/* Horizontal line */
+/* Horizontal line ----- */
 void hline(void) {
 	uint i;
 	for (i = 0; i < 80; ++i)
 		putchar('-');
 }
 
+/* Horizontal line ===== */
 void hline2(void) {
 	uint i;
 	for (i = 0; i < 80; ++i)
 		putchar('=');
 }
-
-enum errtype {WARN, NONFATAL, FATAL, FATALALLOC, FATALBADARG, FINISHED};
 
 
 /****************************************************************************/
@@ -1072,8 +1078,8 @@ int readdir(uint device, uint blocknum) {
 	struct block *curblk;
 	struct datetime dt;
 	ulong eof;
-	uint filecount, idx, subdirs, blks, keyblk, hdrblk, count;
-	uchar blkentries, entries, pd25, i;
+	uint filecount, idx, subdirs, blks, keyblk, hdrblk, count, entries;
+	uchar blkentries, pd25, i;
 	uint errsbefore = errcount;
 	uint blkcnt = 1;
 	uint hdrblknum = blocknum;
@@ -1845,7 +1851,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.63 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.64 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
