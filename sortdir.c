@@ -3,10 +3,6 @@
  *
  * Bobbi January-June 2020
  *
- * TODO: IDEA you only need one sorteddata block at a time. Do not allocate
- *       until writeout time and use one block buffer.  Iterate through
- *       filelist[] collecting all entries for block 1, 2, 3 in turn.
- *       Huge aux memory savings!!
  * TODO: Get working on drives >2 (S7D3, S7D4 etc.)
  * TODO: Enable free list functionality on ProDOS-8
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
@@ -29,6 +25,7 @@
  * v0.63 Made code work properly with #undef CHECK.
  * v0.64 Fixed overflow in file count (entries). Added check to auxalloc().
  * v0.65 Fixed length passed to AUXMOVE in copyaux().
+ * v0.66 Modified to build sorted blocks on the fly rather than in aux memory.
  */
 
 //#pragma debug 9
@@ -119,16 +116,13 @@ struct pd_dirent {
 
 /*
  * Linked list of directory blocks read from disk
- * Original directory block is stored in data[]
- * Directory block for sorted directory is stored in sorteddata[]
+ * Directory block is stored in data[]
  */
 struct block {
 #ifdef AUXMEM
 	char *data;               /* Original contents of block */
-	char *sorteddata;         /* Content block for sorted dir */
 #else
 	char data[BLKSZ];         /* Original contents of block */
-	char sorteddata[BLKSZ];   /* Content block for sorted dir */
 #endif
 	uint blocknum;            /* Block number on disk */
 	struct block *next;
@@ -202,7 +196,9 @@ static uchar dowrite = 0;                /* -w write option */
 static uchar doverbose = 0;              /* -v verbose option */
 static uchar dodebug = 0;                /* -V very verbose option */
 static uchar do_ctime = 0;               /* -k ctime option */
+#ifdef FREELIST
 static uchar dozero = 0;                 /* -z zero free blocks option */
+#endif
 static char sortopts[NLEVELS+1] = "";    /* -s:abc list of sort options */
 static char caseopts[2] = "";            /* -c:x case conversion option */
 static char fixopts[2] = "";             /* -f:x fix mode option */
@@ -274,15 +270,18 @@ void sortlist(char s);
 #endif
 void printlist(void);
 uint blockidxtoblocknum(uint idx);
-void copyent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device);
-void sortblocks(uint device);
+void copydirblkptrs(uint blkidx);
+void copydirent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device);
+void sortblock(uint device, uint dstblk);
 int  writedir(uchar device);
 void freeblocks(void);
 void interactive(void);
 void processdir(uint device, uint blocknum);
+#ifdef FREELIST
 void checkfreeandused(uchar device);
 void zeroblock(uchar device, uint blocknum);
 void zerofreeblocks(uchar device, uint freeblks);
+#endif
 #ifdef CMDLINE
 void usage(void);
 void parseargs(void);
@@ -517,7 +516,7 @@ void lowercase(char *p, uchar len, uchar *minvers, uchar *vers) {
  * Convert filename pointed to by p into upper case (which is recorded
  * as a bitmap in the vers and minvers fields.
  */
-void uppercase(char *p, uchar len, uchar *minvers, uchar *vers) {
+void uppercase(char*, uchar, uchar *minvers, uchar *vers) {
 	*vers = 0x00;
 	*minvers = 0x00;
 }
@@ -827,9 +826,11 @@ void checkblock(uint blk, char *msg) {
 /*
  * Count the blocks in a seedling file
  */
-int seedlingblocks(uchar device, uint keyblk, uint *blkcnt) {
 #ifdef FREELIST
+int seedlingblocks(uchar, uint keyblk, uint *blkcnt) {
 	checkblock(keyblk, "Data");
+#else
+int seedlingblocks(uchar, uint, uint *blkcnt) {
 #endif
 	*blkcnt = 1;
 	return 0;
@@ -1076,7 +1077,6 @@ int readdir(uint device, uint blocknum) {
 	static char namebuf[NMLEN+1];
 	struct pd_dirhdr *hdr;
 	struct block *curblk;
-	struct datetime dt;
 	ulong eof;
 	uint filecount, idx, subdirs, blks, keyblk, hdrblk, count, entries;
 	uchar blkentries, pd25, i;
@@ -1095,7 +1095,6 @@ int readdir(uint device, uint blocknum) {
 
 #ifdef AUXMEM
 	curblk->data = auxalloc(BLKSZ);
-	curblk->sorteddata = auxalloc(BLKSZ);
 #endif
 
 #ifdef FREELIST
@@ -1308,14 +1307,8 @@ int readdir(uint device, uint blocknum) {
 			blocknum = dirblkbuf[0x02] + 256U * dirblkbuf[0x03];
 #ifdef AUXMEM
 			copyaux(dirblkbuf, curblk->data, BLKSZ, TOAUX);
-			bzero(buf, BLKSZ);
-			memcpy(buf, dirblkbuf, PTRSZ);
-			copyaux(buf, curblk->sorteddata, BLKSZ, TOAUX);
 #else
 			memcpy(curblk->data, dirblkbuf, BLKSZ);
-			bzero(buf, BLKSZ);
-			memcpy(buf, dirblkbuf, PTRSZ);
-			memcpy(curblk->sorteddata, buf, BLKSZ);
 #endif
 			if (blocknum == 0) {
 				break;
@@ -1330,7 +1323,6 @@ int readdir(uint device, uint blocknum) {
 
 #ifdef AUXMEM
 			curblk->data = auxalloc(BLKSZ);
-			curblk->sorteddata = auxalloc(BLKSZ);
 #endif
 
 #ifdef FREELIST
@@ -1359,14 +1351,8 @@ int readdir(uint device, uint blocknum) {
 	}
 #ifdef AUXMEM
 	copyaux(dirblkbuf, curblk->data, BLKSZ, TOAUX);
-	bzero(buf, BLKSZ);
-	memcpy(buf, dirblkbuf, PTRSZ);
-	copyaux(buf, curblk->sorteddata, BLKSZ, TOAUX);
 #else
 	memcpy(curblk->data, dirblkbuf, BLKSZ);
-	bzero(buf, BLKSZ);
-	memcpy(buf, dirblkbuf, PTRSZ);
-	memcpy(curblk->sorteddata, buf, BLKSZ);
 #endif
 
 	return errcount - errsbefore;
@@ -1730,21 +1716,36 @@ uint blockidxtoblocknum(uint idx) {
 	uint i;
 	struct block *p = blocks;
 	for (i = 1; i < idx; ++i)
-		if (p)
-			p = p->next;
-		else
-			err(FATAL, "Int error");
-	if (!p)
-		err(FATAL, "Int error");
+		p = p->next;
 	return p->blocknum;
+}
+
+/*
+ * Copy the 4 bytes of pointers from the directory block with index idx
+ * to the start of dirblkbuf[]; zeroes the rest of dirblkbuf[].
+ */
+void copydirblkptrs(uint idx) {
+	uint i;
+	struct block *p = blocks;
+	for (i = 1; i < idx; ++i)
+		p = p->next;
+	//while (--blkidx > 0)
+	//	b = b->next;
+	bzero(dirblkbuf, BLKSZ);
+#ifdef AUXMEM
+	copyaux(p->data, dirblkbuf, PTRSZ, FROMAUX);
+#else
+	memcpy(dirblkbuf, p->data, PTRSZ);
+#endif
 }
 
 /*
  * Copy a file entry from one srcblk, srcent to dstblk, dstent
  * All indices are 1-based.
+ * dstblk is written to dirblkbuf[]
  */
-void copyent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device) {
-	struct block *source = blocks, *dest = blocks;
+void copydirent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device) {
+	struct block *source = blocks;
 	struct pd_dirent *ent;
 	struct pd_dirhdr *hdr;
 	char *srcptr, *dstptr;
@@ -1755,32 +1756,26 @@ void copyent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device) {
 		printf("    to dirblk %03u entry %02u\n", dstblk, dstent);
 	}
 
-	parentblk = blockidxtoblocknum(dstblk);
-
 	while (--srcblk > 0)
 		source = source->next;
-	while (--dstblk > 0)
-		dest = dest->next;
+
 	srcptr =  source->data + PTRSZ + (srcent-1) * entsz;
-	dstptr =  dest->sorteddata + PTRSZ + (dstent-1) * entsz;
+	dstptr =  dirblkbuf + PTRSZ + (dstent-1) * entsz;
+
 #ifdef AUXMEM
-	copyaux(srcptr, buf2, entsz, FROMAUX);
-	copyaux(buf2, dstptr, entsz, TOAUX);
+	copyaux(srcptr, dstptr, entsz, FROMAUX);
 #else
 	memcpy(dstptr, srcptr, entsz);
 #endif
 
 	/* For directories, update the parent dir entry number */
-#ifdef AUXMEM
-	ent = (struct pd_dirent*)buf2;
-#else
 	ent = (struct pd_dirent*)dstptr;
-#endif
 	if ((ent->typ_len & 0xf0) == 0xd0) {
 		uint block = ent->keyptr[0] + 256U * ent->keyptr[1];
 		if (readdiskblock(device, block, buf) == -1)
 			err(FATAL, "Can't read subdir");
 		hdr = (struct pd_dirhdr*)(buf + PTRSZ);
+		parentblk = blockidxtoblocknum(dstblk);
 		hdr->parptr[0] = parentblk & 0xff;
 		hdr->parptr[1] = (parentblk >> 8) & 0xff;
 		hdr->parentry = dstent;
@@ -1792,39 +1787,40 @@ void copyent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device) {
 }
 
 /*
- * Use the sorted list in filelist[] to create a sorted set of directory
- * blocks.  Note that the block and entry numbers are 1-based indices.
+ * Build sorted directory block dstblk (1,2,3...) using the sorted list in
+ * filelist[]. Note that the block and entry numbers are 1-based indices.
  */
-void sortblocks(uint device) {
-	uint i;
-	uchar destblk = 1;
-	uchar destentry = 2; /* Skip header on first block */
-	copyent(1, 1, 1, 1, device); /* Copy directory header */
-	for(i = 0; i < numfiles; ++i) {
-		if (dodebug)
-			puts(filelist[i].name);
-		copyent(filelist[i].blockidx, filelist[i].entrynum,
-		        destblk, destentry, device);
-		if (destentry++ == entperblk) {
-			++destblk;
-			destentry = 1;
-		}
+void sortblock(uint device, uint dstblk) {
+	uint i, firstlistent, lastlistent;
+	uchar destentry;
+	copydirblkptrs(dstblk);
+	if (dstblk == 1) {
+		copydirent(1, 1, 1, 1, device); /* Copy directory header */
+		destentry = 2; /* Skip header on first block */
+		firstlistent = 0;
+		lastlistent = entperblk - 2;
+	} else {
+		destentry = 1;
+		firstlistent = (dstblk - 1) * entperblk - 1;
+		lastlistent = firstlistent + entperblk - 1;
+	}
+	for (i = firstlistent; i <= lastlistent; ++i) {
+		copydirent(filelist[i].blockidx, filelist[i].entrynum,
+		           dstblk, destentry++, device);
 	}
 }
 
 /*
- * Write out the sorted directory
+ * Build each sorted directory block in turn, then write them
+ * out to disk.
  */
 int writedir(uchar device) {
+	uint dstblk = 1;
 	struct block *b = blocks;
 	while (b) {
-#ifdef AUXMEM
-		copyaux(b->sorteddata, dirblkbuf, BLKSZ, FROMAUX);
+		sortblock(device, dstblk++);
 		if (writediskblock(device, b->blocknum, dirblkbuf) == -1) {
-#else
-		if (writediskblock(device, b->blocknum, b->sorteddata) == -1) {
-#endif
-			err(NONFATAL, "Can't write block %u", b->blocknum);
+			err(NONFATAL, "Can't write blk %u", b->blocknum);
 			return 1;
 		}
 		b = b->next;
@@ -1846,12 +1842,15 @@ void freeblocks(void) {
 }
 
 void interactive(void) {
-	char w, l, d, f, z, wrt;
+	char w, l, d, f, wrt;
+#ifdef FREELIST
+	char z;
+#endif
 	uchar level;
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.65 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.66 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
@@ -1983,13 +1982,9 @@ void processdir(uint device, uint blocknum) {
 				printf("[%c] ", sortopts[i]);
 			buildsorttable(sortopts[i], i);
 			sortlist(sortopts[i]);
-			sortblocks(device);
 		}
 		if (doverbose)
 			putchar('\n');
-		//if (doverbose) {
-		//	printlist();
-		//}
 		if (dowrite) {
 			puts("Writing dir ...");
 			errs = writedir(device);
@@ -2004,13 +1999,14 @@ done:
 #endif
 }
 
+#ifdef FREELIST
+
 /*
  * Iterate through freelist[] and usedlist[] and see if all is well.
  * If we have visited all files and directories on the volume, every
  * block should either be marked free or marked used.
  */
 void checkfreeandused(uchar device) {
-#ifdef FREELIST
 	uint i, freeblks = 0;
 	printf("Total blks\t%u\n", totblks);
 	for (i = 0; i < totblks; ++i)
@@ -2041,13 +2037,11 @@ void checkfreeandused(uchar device) {
 	}
 	if (dozero)
 		zerofreeblocks(device, freeblks);
-#endif
 }
 
 /*
  * Zero block blocknum
  */
-#ifdef FREELIST
 void zeroblock(uchar device, uint blocknum) {
 	bzero(buf, BLKSZ);
 //	DIORecGS dr;
@@ -2061,12 +2055,10 @@ void zeroblock(uchar device, uint blocknum) {
 //	if (dr.transferCount != BLKSZ)
 //		err(FATAL, "Block write failed");
 }
-#endif
 
 /*
  * Zero all free blocks on the volume
  */
-#ifdef FREELIST
 void zerofreeblocks(uchar device, uint freeblks) {
 	uint i, step = freeblks / 60, ctr = 0;
 	puts("Zeroing free blocks ...");
@@ -2082,6 +2074,7 @@ void zerofreeblocks(uchar device, uint freeblks) {
 		}
 	puts("\nDone zeroing!");
 }
+
 #endif
 
 #ifdef CMDLINE
@@ -2173,7 +2166,9 @@ void parseargs() {
 
 //int main(int argc, char *argv[]) {
 int main() {
+#ifdef CMDLINE
 	int opt;
+#endif
 	uchar dev;
 	uint blk;
 
@@ -2292,10 +2287,10 @@ int main() {
 			processdir(dev, blk);
 		}
 	}
+#ifdef FREELIST
 	if (dowholedisk)
 		checkfreeandused(dev);
 
-#ifdef FREELIST
 	free(freelist);
 	free(usedlist);
 #endif
