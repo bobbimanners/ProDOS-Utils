@@ -26,6 +26,7 @@
  * v0.64 Fixed overflow in file count (entries). Added check to auxalloc().
  * v0.65 Fixed length passed to AUXMOVE in copyaux().
  * v0.66 Modified to build sorted blocks on the fly rather than in aux memory.
+ * v0.67 Fixed bug in v0.66 where garbage was written to end of directory.
  */
 
 //#pragma debug 9
@@ -1729,8 +1730,6 @@ void copydirblkptrs(uint idx) {
 	struct block *p = blocks;
 	for (i = 1; i < idx; ++i)
 		p = p->next;
-	//while (--blkidx > 0)
-	//	b = b->next;
 	bzero(dirblkbuf, BLKSZ);
 #ifdef AUXMEM
 	copyaux(p->data, dirblkbuf, PTRSZ, FROMAUX);
@@ -1804,6 +1803,8 @@ void sortblock(uint device, uint dstblk) {
 		firstlistent = (dstblk - 1) * entperblk - 1;
 		lastlistent = firstlistent + entperblk - 1;
 	}
+	if (lastlistent > numfiles - 1)
+		lastlistent = numfiles - 1;
 	for (i = firstlistent; i <= lastlistent; ++i) {
 		copydirent(filelist[i].blockidx, filelist[i].entrynum,
 		           dstblk, destentry++, device);
@@ -1850,7 +1851,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.66 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.67 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
