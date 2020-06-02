@@ -851,7 +851,7 @@ void checkblock(uint blk, char *msg) {
 	if (isfree(blk))
 		err(WARN, err_blfree2, msg, blk);
 	if (isused(blk))
-		err(WARN, "%s blk %u is already used!", msg, blk);
+		err(WARN, err_blused2, msg, blk);
 	markused(blk);
 }
 
