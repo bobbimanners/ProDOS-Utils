@@ -3,13 +3,14 @@
  *
  * Bobbi January-June 2020
  *
+ * TODO: Get rid of -k option. Add proper options for sorting on creation time.
  * TODO: Get working on drives >2 (S7D3, S7D4 etc.)
- * TODO: Enable free list functionality on ProDOS-8
+ * TODO: Enable free list functionality on ProDOS-8 using aux mem
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  * TODO: Trimming unused directory blocks
  *
  * Revision History
- * v0.5  Initial alpha release on GitHub. Ported from GNO/ME version.
+ * v0.50 Initial alpha release on GitHub. Ported from GNO/ME version.
  * v0.51 Made buf[] and buf2[] dynamic.
  * v0.52 Support for aux memory.
  * v0.53 Auto-sizing of filelist[] to fit available memory.
@@ -27,6 +28,7 @@
  * v0.65 Fixed length passed to AUXMOVE in copyaux().
  * v0.66 Modified to build sorted blocks on the fly rather than in aux memory.
  * v0.67 Fixed bug in v0.66 where garbage was written to end of directory.
+ * v0.68 Cleaned up error msgs.
  */
 
 //#pragma debug 9
@@ -211,6 +213,35 @@ static char *buf2;                       /* General purpose scratch buffer */
 static char *dirblkbuf;                  /* Used for reading directory blocks */
 static struct fileent *filelist;         /* Used for qsort() */
 
+/* Error messages */
+static const char err_nomem[]    = "No memory!";
+static const char err_noaux[]    = "No aux mem!";
+static const char err_rdblk1[]   = "Can't read blk %u";
+static const char err_rdblk2[]   = "Can't read blk %u ($%2x)";
+static const char err_wtblk1[]   = "Can't write blk %u";
+static const char err_wtblk2[]   = "Can't write blk %u ($%2x)";
+static const char err_stype2[]   = "Bad storage type $%2x for %s";
+static const char err_odir1[]    = "Can't open dir %s";
+static const char err_rddir1[]   = "Can't read dir %s";
+static const char err_rdpar[]    = "Can't read parent dir";
+static const char err_sdname[]   = "Bad subdir name";
+static const char err_entsz2[]   = "Bad entry size %u, should be %u";
+static const char err_entblk2[]  = "Bad entries/blk %u, should be %u";
+static const char err_parblk3[]  = "Bad parent %s %u, should be %u";
+static const char err_hdrblk2[]  = "Bad hdr blk %u, should be %u";
+static const char err_forksz3[]  = "%s fork size %u is wrong, should be %u";
+static const char err_used2[]    = "Blks used %u is wrong, should be %u";
+static const char err_many[]     = "Too many files to sort";
+static const char err_count2[]   = "Filecount %u wrong, should be %u";
+static const char err_nosort[]   = "Errors ... will not sort";
+static const char err_rdfl[]     = "Can't read free list";
+static const char err_updsdir1[] = "Can't update subdir entry (%s)";
+static const char err_invopt[]   = "Invalid %s option";
+static const char err_usage[]    = "Usage error";
+static const char err_80col[]    = "Need 80 cols";
+static const char err_128K[]     = "Need 128K";
+
+
 /* Prototypes */
 #ifdef AUXMEM
 void copyaux(char *src, char *dst, uint len, uchar dir);
@@ -219,7 +250,7 @@ void freeallaux(void);
 #endif
 void hline(void);
 void confirm(void);
-void err(enum errtype severity, char *fmt, ...);
+void err(enum errtype severity, const char *fmt, ...);
 void flushall(void);
 int  readdiskblock(uchar device, uint blocknum, char *buf);
 int  writediskblock(uchar device, uint blocknum, char *buf);
@@ -317,7 +348,7 @@ char *auxalloc(uint bytes) {
 	auxp += bytes;
 	//printf("0x%p\n", auxp);
 	if (auxp > (char*)ENDAUX)
-		err(FATAL, "Out of aux mem");
+		err(FATAL, err_noaux);
 	return p;
 }
 
@@ -357,7 +388,7 @@ void confirm() {
 /*
  * Display error message
  */
-void err(enum errtype severity, char *fmt, ...) {
+void err(enum errtype severity, const char *fmt, ...) {
 	va_list v;
 	uint rv = 0;
 	rebootafterexit(); // Necessary if we were called from BASIC
@@ -384,9 +415,9 @@ void err(enum errtype severity, char *fmt, ...) {
 
 	fputs(((rv > 0) ? "  ** " : "  "), stdout);
 	va_start(v, fmt);
-	putchar('\n');
 	vprintf(fmt, v);
 	va_end(v);
+	putchar('\n');
 	if (rv > 0) {
 		printf("Stopping after %u errors\n", errcount);
 		confirm();
@@ -425,12 +456,12 @@ int readdiskblock(uchar device, uint blocknum, char *buf) {
 //	READ_BLOCK(&br);
 //	int rc = toolerror();
 //	if (rc) {
-//		err(FATAL, "Block read failed, err=%x", rc);
+//		err(FATAL, "Blk read failed, err=%x", rc);
 //		return -1;
 //	}
 	rc = dio_read(dio_hdl, blocknum, buf);
 	if (rc)
-		err(FATAL, "Blk read failed, err=%x", rc);
+		err(FATAL, err_rdblk2, blocknum, rc);
 	return 0;
 }
 
@@ -460,7 +491,7 @@ int writediskblock(uchar device, uint blocknum, char *buf) {
 //	}
 	rc = dio_write(dio_hdl, blocknum, buf);
 	if (rc)
-		err(FATAL, "Blk write failed, err=%x", rc);
+		err(FATAL, err_wtblk2, blocknum, rc);
 	return 0;
 }
 
@@ -573,13 +604,13 @@ void firstblk(char *dirname, uchar *device, uint *block) {
 
 	fp = open(dirname, O_RDONLY);
 	if (!fp) {
-		err(FATAL, "Error opening dir %s", dirname);
+		err(FATAL, err_odir1, dirname);
 		goto ret;
 	}
 
 	len = read(fp, buf, BLKSZ);
 	if (len != BLKSZ) {
-		err(FATAL, "Error reading first blk of dir %s", dirname);
+		err(FATAL, err_rddir1, dirname);
 		goto ret;
 	}
 
@@ -609,7 +640,7 @@ void firstblk(char *dirname, uchar *device, uint *block) {
 
 #ifdef CHECK
 	if ((hdr->typ_len & 0xf0) != 0xe0) {
-		err(NONFATAL, "Bad storage type");
+		err(NONFATAL, err_stype2, hdr->typ_len & 0xf0, "dir");
 		goto ret;
 	}
 #endif
@@ -621,7 +652,7 @@ void firstblk(char *dirname, uchar *device, uint *block) {
 
 	/* Read parent directory block */
 	if (readdiskblock(*device, parentblk, buf) == -1)
-		err(FATAL, "Can't read parent directory for %s", dirname);
+		err(FATAL, err_rdpar);
 
 	ent = (struct pd_dirent *)(buf + PTRSZ + (parententry-1) * parententlen);
 
@@ -730,16 +761,16 @@ int readfreelist(uchar device) {
 	char *p;
 	freelist = (uchar*)malloc(FLSZ);
 	if (!freelist)
-		err(FATALALLOC, "No memory!");
+		err(FATALALLOC, err_nomem);
 	bzero(freelist, FLSZ);
 	usedlist = (uchar*)malloc(FLSZ);
 	if (!usedlist)
-		err(FATALALLOC, "No memory!");
+		err(FATALALLOC, err_nomem);
 	bzero(usedlist, FLSZ);
 	markused(0); /* Boot block */
 	markused(1); /* SOS boot block */
 	if (readdiskblock(device, 2, buf) == -1) {
-		err(NONFATAL, "Error reading volume dir");
+		err(NONFATAL, err_rdblk1, 2);
 		return -1;
 	}
 	flblk = buf[0x27] + 256U * buf[0x28];
@@ -753,7 +784,7 @@ int readfreelist(uchar device) {
 	for (i = 0; i < flsize; ++i) {
 		markused(flblk);
 		if (readdiskblock(device, flblk++, p) == -1) {
-			err(NONFATAL, "Error reading free list");
+			err(NONFATAL, err_rdfl);
 			return -1;
 		}
 		p += BLKSZ;
@@ -846,7 +877,7 @@ int saplingblocks(uchar device, uint keyblk, uint *blkcnt) {
 	checkblock(keyblk, "Data");
 #endif
 	if (readdiskblock(device, keyblk, buf) == -1) {
-		err(NONFATAL, "Error reading blk %u", keyblk);
+		err(NONFATAL, err_rdblk1, keyblk);
 		return -1;
 	}
 	*blkcnt = 1;
@@ -871,7 +902,7 @@ int treeblocks(uchar device, uint keyblk, uint *blkcnt) {
 	checkblock(keyblk, "Tree index");
 #endif
 	if (readdiskblock(device, keyblk, buf2) == -1) {
-		err(NONFATAL, "Error reading blk %u", keyblk);
+		err(NONFATAL, err_rdblk1, keyblk);
 		return -1;
 	}
 	*blkcnt = 1;
@@ -898,7 +929,7 @@ int forkblocks(uchar device, uint keyblk, uint *blkcnt) {
 	checkblock(keyblk, "Fork key");
 #endif
 	if (readdiskblock(device, keyblk, buf) == -1) {
-		err(NONFATAL, "Error reading blk %u", keyblk);
+		err(NONFATAL, err_rdblk1, keyblk);
 		return -1;
 	}
 	*blkcnt = 1;
@@ -925,15 +956,13 @@ int forkblocks(uchar device, uint keyblk, uint *blkcnt) {
 		treeblocks(device, d_keyblk, &count);
 		break;
 	default:
-		err(NONFATAL, "Invalid storage type for data fork");
+		err(NONFATAL, err_stype2, d_type, "data fork");
 		count = 0;
 		break;
 	}
 	if (d_blks != count) {
 		if (count != 0) {
-			err(NONFATAL,
-			    "Data fork size %u is incorrect, should be %u",
-			    d_blks, count);
+			err(NONFATAL, err_forksz3, "Data", d_blks, count);
 // TODO: Need to rethink the fix mode here ... it was buggy anyhow
 //			if (askfix() == 1) {
 //				buf[0x03] = count & 0xff;
@@ -958,15 +987,13 @@ int forkblocks(uchar device, uint keyblk, uint *blkcnt) {
 		treeblocks(device, r_keyblk, &count);
 		break;
 	default:
-		err(NONFATAL, "Invalid storage type for resource fork");
+		err(NONFATAL, err_stype2, r_type, "res fork");
 		count = 0;
 		break;
 	}
 	if (r_blks != count) {
 		if (count != 0) {
-			err(NONFATAL,
-			    "Res fork size %u is incorrect, should be %u",
-			    r_blks, count);
+			err(NONFATAL, err_forksz3, "Res", r_blks, count);
 			if (askfix() == 1) {
 // TODO: Need to rethink the fix mode here ... it was buggy anyhow
 //				buf[0x103] = count & 0xff;
@@ -994,7 +1021,7 @@ int  subdirblocks(uchar device, uint keyblk, struct pd_dirent *ent,
 		checkblock(keyblk, "Directory");
 #endif
 	if (readdiskblock(device, keyblk, buf) == -1) {
-		err(NONFATAL, "Error reading keyblock %u", keyblk);
+		err(NONFATAL, err_rdblk1, keyblk);
 		return -1;
 	}
 	*blkcnt = 1;
@@ -1004,8 +1031,7 @@ int  subdirblocks(uchar device, uint keyblk, struct pd_dirent *ent,
 	parblk = hdr->parptr[0] + 256U * hdr->parptr[1];
 
 	if (parblk != blocknum) {
-		err(NONFATAL, "Bad parent blk %u, should be %u",
-		    parblk, blocknum);
+		err(NONFATAL, err_parblk3, "blk", parblk, blocknum);
 		if (askfix() == 1) {
 			hdr->parptr[0] = blocknum & 0xff;
 			hdr->parptr[1] = (blocknum >> 8) & 0xff;
@@ -1013,21 +1039,20 @@ int  subdirblocks(uchar device, uint keyblk, struct pd_dirent *ent,
 	}
 
 	if (parentry != blkentries) {
-		err(NONFATAL, "Bad parent blk entry %u, should be %u",
-		    parentry, blkentries);
+		err(NONFATAL, err_parblk3, "entry", parentry, blkentries);
 		if (askfix() == 1) {
 			hdr->parentry = blkentries;
 		}
 	}
 	if (parentlen != ENTSZ) {
-		err(NONFATAL, "Bad parent entry length");
+		err(NONFATAL, err_parblk3, "entry size", parentlen, ENTSZ);
 		if (askfix() == 1) {
 			hdr->parentlen = ENTSZ;
 		}
 	}
 	dirname = buf + 0x05;
 	if (strncmp(dirname, ent->name, NMLEN)) {
-		err(NONFATAL, "Subdir name mismatch");
+		err(NONFATAL, err_sdname);
 	}
 
 	blocknum = buf[0x02] + 256U * buf[0x03];
@@ -1037,7 +1062,7 @@ int  subdirblocks(uchar device, uint keyblk, struct pd_dirent *ent,
 			checkblock(blocknum, "Directory");
 #endif
 		if (readdiskblock(device, blocknum, buf) == -1) {
-			err(NONFATAL, "Error reading dir blk %u", blocknum);
+			err(NONFATAL, err_rdblk1, blocknum);
 			return -1;
 		}
 		++(*blkcnt);
@@ -1057,7 +1082,7 @@ void enqueuesubdir(uint blocknum, uint subdiridx) {
 	static struct dirblk *prev;
 	struct dirblk *p = (struct dirblk*)malloc(sizeof(struct dirblk));
 	if (!p)
-		err(FATALALLOC, "No memory!");
+		err(FATALALLOC, err_nomem);
 	p->blocknum = blocknum;
 	if (subdiridx == 0) {     /* First subdir is inserted at head of list */
 		p->next = dirs;
@@ -1089,7 +1114,7 @@ int readdir(uint device, uint blocknum) {
 
 	blocks = (struct block*)malloc(sizeof(struct block));
 	if (!blocks)
-		err(FATALALLOC, "No memory!");
+		err(FATALALLOC, err_nomem);
 	curblk = blocks;
 	curblk->next = NULL;
 	curblk->blocknum = blocknum;
@@ -1102,7 +1127,7 @@ int readdir(uint device, uint blocknum) {
 	checkblock(blocknum, "Directory");
 #endif
 	if (readdiskblock(device, blocknum, dirblkbuf) == -1) {
-		err(NONFATAL, "Error reading dir blk %d", blkcnt);
+		err(NONFATAL, err_rdblk1, blocknum);
 		return 1;
 	}
 
@@ -1122,11 +1147,11 @@ int readdir(uint device, uint blocknum) {
 
 #ifdef CHECK
 	if (entsz != ENTSZ) {
-		err(NONFATAL, "Error - bad entry size");
+		err(NONFATAL, err_entsz2, entsz, ENTSZ);
 		return 1;
 	}
 	if (entperblk != ENTPERBLK) {
-		err(NONFATAL, "Error - bad entries/block");
+		err(NONFATAL, err_entblk2, entperblk, ENTPERBLK);
 		return 1;
 	}
 #endif
@@ -1170,7 +1195,7 @@ int readdir(uint device, uint blocknum) {
 					            &(ent->minvers));
 					break;
 				default:
-					err(FATALBADARG, "Invalid case option");
+					err(FATALBADARG, err_invopt, "case");
 				}
 			}
 
@@ -1186,7 +1211,7 @@ int readdir(uint device, uint blocknum) {
 					pd25 = 0;
 					break;
 				default:
-					err(FATALBADARG, "Invalid date option");
+					err(FATALBADARG, err_invopt, "date");
 				}
 				writedatetime(pd25, &ctime, ent->ctime);
 				writedatetime(pd25, &mtime, ent->mtime);
@@ -1227,8 +1252,7 @@ int readdir(uint device, uint blocknum) {
 			hdrblk = ent->hdrptr[0] + 256U * ent->hdrptr[1];
 #ifdef CHECK
 			if (hdrblk != hdrblknum) {
-				err(NONFATAL, "Header ptr %u, should be %u",
-				    hdrblk, hdrblknum);
+				err(NONFATAL, err_hdrblk2, hdrblk, hdrblknum);
 				if (askfix() == 1) {
 					ent->hdrptr[0] = hdrblknum & 0xff;
 					ent->hdrptr[1] = (hdrblknum >> 8)&0xff;
@@ -1268,20 +1292,16 @@ int readdir(uint device, uint blocknum) {
 				forkblocks(device, keyblk, &count);
 				break;
 			default:
-				err(NONFATAL,
-				    "%s: unexpected storage type 0x%x",
-				     namebuf, ent->typ_len & 0xf0);
+				err(NONFATAL, err_stype2, ent->typ_len & 0xf0, "entry");
 				count = 0;
 #endif
 			}
 #ifdef CHECK
 			if (blks != count) {
 				if (count != 0) {
-					err(NONFATAL,
-					    "Blks used %u is incorrect, "
-					    "should be %u", blks, count);
+					err(NONFATAL, err_used2, blks, count);
 					if (askfix() == 1) {
-						ent->blksused[0] = count&0xff;
+						ent->blksused[0] = count & 0xff;
 						ent->blksused[1] = (count >> 8) & 0xff;
 					}
 				}
@@ -1289,7 +1309,7 @@ int readdir(uint device, uint blocknum) {
 #endif
 			++numfiles;
 			if (numfiles == maxfiles) {
-				err(NONFATAL, "Too many files!\n");
+				err(NONFATAL, err_many);
 				return 1;
 			}
 			if (errcount == errsbeforeent) {
@@ -1316,7 +1336,7 @@ int readdir(uint device, uint blocknum) {
 			}
 			curblk->next = (struct block*)malloc(sizeof(struct block));
 			if (!curblk->next)
-				err(FATALALLOC, "No memory!");
+				err(FATALALLOC, err_nomem);
 			curblk = curblk->next;
 			curblk->next = NULL;
 			curblk->blocknum = blocknum;
@@ -1330,8 +1350,7 @@ int readdir(uint device, uint blocknum) {
 			checkblock(blocknum, "Directory");
 #endif
 			if (readdiskblock(device, blocknum, dirblkbuf) == -1) {
-				err(NONFATAL,"Error reading dir blk %d",
-				    blkcnt);
+				err(NONFATAL, err_rdblk1, blocknum);
 				return 1;
 			}
 
@@ -1343,8 +1362,7 @@ int readdir(uint device, uint blocknum) {
 		}
 	}
 	if (filecount != entries) {
-		err(NONFATAL, "Filecount %u wrong, should be %u",
-		    filecount, entries);
+		err(NONFATAL, err_count2, filecount, entries);
 		if (askfix() == 1) {
 			hdr->filecnt[0] = entries & 0xff;
 			hdr->filecnt[1] = (entries >> 8) & 0xff;
@@ -1676,7 +1694,7 @@ void sortlist(char s) {
 		      cmp_noop);
 		break;
 	default:
-		err(FATALBADARG, "Invalid sort option");
+		err(FATALBADARG, err_invopt, "sort");
 	}
 }
 
@@ -1772,7 +1790,7 @@ void copydirent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device)
 	if ((ent->typ_len & 0xf0) == 0xd0) {
 		uint block = ent->keyptr[0] + 256U * ent->keyptr[1];
 		if (readdiskblock(device, block, buf) == -1)
-			err(FATAL, "Can't read subdir");
+			err(NONFATAL, err_updsdir1, "read");
 		hdr = (struct pd_dirhdr*)(buf + PTRSZ);
 		parentblk = blockidxtoblocknum(dstblk);
 		hdr->parptr[0] = parentblk & 0xff;
@@ -1780,7 +1798,7 @@ void copydirent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device)
 		hdr->parentry = dstent;
 		if (dowrite) {
 			if (writediskblock(device, block, buf) == -1)
-				err(FATAL, "Can't write subdir");
+				err(NONFATAL, err_updsdir1, "write");
 		}
 	}
 }
@@ -1821,7 +1839,7 @@ int writedir(uchar device) {
 	while (b) {
 		sortblock(device, dstblk++);
 		if (writediskblock(device, b->blocknum, dirblkbuf) == -1) {
-			err(NONFATAL, "Can't write blk %u", b->blocknum);
+			err(NONFATAL, err_wtblk1, b->blocknum);
 			return 1;
 		}
 		b = b->next;
@@ -1851,7 +1869,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.67 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.68 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
@@ -1971,7 +1989,7 @@ void processdir(uint device, uint blocknum) {
 	flushall();
 	errs = readdir(device, blocknum);
 	if ((strlen(fixopts) == 0) && errs) {
-		err(NONFATAL, "Error scanning directory, will not sort\n");
+		err(NONFATAL, err_nosort);
 		goto done;
 	}
 #ifdef SORT
@@ -2022,15 +2040,13 @@ void checkfreeandused(uchar device) {
 			continue;
 		if (isfree(i)) {
 			if (isused(i)) {
-				err(NONFATAL,
-				    "Blk %u used, marked free", i);
+				err(NONFATAL, "Blk %u used, marked free", i);
 				if (askfix() == 1)
 					marknotfree(i);
 			}
 		} else {
 			if (!isused(i)) {
-				err(NONFATAL,
-				    "Blk %u unused, not marked free", i);
+				err(NONFATAL, "Blk %u unused, not marked free", i);
 				if (askfix() == 1)
 					markfree(i);
 			}
@@ -2131,7 +2147,7 @@ void usage(void) {
 	printf("Will sort the current directory first by name (ascending),\n");
 	printf("then sort directories to the top, and will write the\n");
 	printf("sorted directory to disk.\n");
-	err(FATAL, "Usage error");
+	err(FATAL, err_usage);
 }
 
 #define MAXNUMARGS 10
@@ -2176,10 +2192,10 @@ int main() {
 	uchar *pp;
 	pp = (uchar*)0xbf98;
 	if (!(*pp & 0x02))
-		err(FATAL, "Need 80 cols");
+		err(FATAL, err_80col);
 #ifdef AUXMEM
 	if ((*pp & 0x30) != 0x30)
-		err(FATAL, "Need 128K");
+		err(FATAL, err_128K);
 #endif
 
 	// Clear system bit map
