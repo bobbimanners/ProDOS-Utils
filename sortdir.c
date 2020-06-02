@@ -235,6 +235,10 @@ static const char err_many[]     = "Too many files to sort";
 static const char err_count2[]   = "Filecount %u wrong, should be %u";
 static const char err_nosort[]   = "Errors ... will not sort";
 static const char err_rdfl[]     = "Can't read free list";
+static const char err_blfree1[]  = "In use blk %u is marked free";
+static const char err_blfree2[]  = "%s blk %u is marked free";
+static const char err_blused1[]  = "Unused blk %u is not marked free";
+static const char err_blused2[]  = "%s blk %u used elsewhere";
 static const char err_updsdir1[] = "Can't update subdir entry (%s)";
 static const char err_invopt[]   = "Invalid %s option";
 static const char err_usage[]    = "Usage error";
@@ -446,7 +450,7 @@ int readdiskblock(uchar device, uint blocknum, char *buf) {
 #ifdef FREELIST
 	if (flloaded)
 		if (isfree(blocknum))
-			err(NONFATAL, "Blk %u is marked free!", blocknum);
+			err(NONFATAL, err_blfree1, blocknum);
 #endif
 #endif
 //	BlockRec br;
@@ -845,7 +849,7 @@ void markused(uint blk) {
  */
 void checkblock(uint blk, char *msg) {
 	if (isfree(blk))
-		err(WARN, "%s blk %u is marked free!", msg, blk);
+		err(WARN, err_blfree2, msg, blk);
 	if (isused(blk))
 		err(WARN, "%s blk %u is already used!", msg, blk);
 	markused(blk);
@@ -2040,13 +2044,13 @@ void checkfreeandused(uchar device) {
 			continue;
 		if (isfree(i)) {
 			if (isused(i)) {
-				err(NONFATAL, "Blk %u used, marked free", i);
+				err(NONFATAL, err_blfree1, i);
 				if (askfix() == 1)
 					marknotfree(i);
 			}
 		} else {
 			if (!isused(i)) {
-				err(NONFATAL, "Blk %u unused, not marked free", i);
+				err(NONFATAL, err_blused1, i);
 				if (askfix() == 1)
 					markfree(i);
 			}
