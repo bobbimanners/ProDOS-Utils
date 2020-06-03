@@ -3,7 +3,6 @@
  *
  * Bobbi January-June 2020
  *
- * TODO: Get rid of -k option. Add proper options for sorting on creation time.
  * TODO: Enable free list functionality on ProDOS-8 using aux mem
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  * TODO: Trimming unused directory blocks
@@ -29,7 +28,7 @@
  * v0.67 Fixed bug in v0.66 where garbage was written to end of directory.
  * v0.68 Cleaned up error msgs.
  * v0.69 Fixed support for drive number >2. (cc65 needs to be fixed too!)
- * v0.70 Reverse video signon.
+ * v0.70 Changed sort options to support mtime & ctime. Improved UI a bit.
  */
 
 //#pragma debug 9
@@ -51,7 +50,7 @@
 //#include <prodos.h>
 #include <apple2enh.h>
 #include <dio.h>
-#include <conio.h> // For revers()
+#include <conio.h> // For revers() and clrscr()
 
 #define CHECK		/* Perform additional integrity checking */
 #define SORT        /* Enable sorting code */
@@ -200,7 +199,6 @@ static uchar dorecurse = 0;              /* -r recurse option */
 static uchar dowrite = 0;                /* -w write option */
 static uchar doverbose = 0;              /* -v verbose option */
 static uchar dodebug = 0;                /* -V very verbose option */
-static uchar do_ctime = 0;               /* -k ctime option */
 #ifdef FREELIST
 static uchar dozero = 0;                 /* -z zero free blocks option */
 #endif
@@ -259,6 +257,7 @@ char *auxalloc(uint bytes);
 void freeallaux(void);
 #endif
 void hline(void);
+void hlinechar(char c);
 void confirm(void);
 void err(enum errtype severity, const char *fmt, ...);
 void flushall(void);
@@ -317,6 +316,7 @@ void copydirent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device)
 void sortblock(uint device, uint dstblk);
 int  writedir(uchar device);
 void freeblocks(void);
+void subtitle(char *s);
 void interactive(void);
 void processdir(uint device, uint blocknum);
 #ifdef FREELIST
@@ -369,18 +369,15 @@ void freeallaux() {
 
 #endif
 
-/* Horizontal line ----- */
+/* Horizontal line */
 void hline(void) {
-	uint i;
-	for (i = 0; i < 80; ++i)
-		putchar('-');
+	hlinechar('-');
 }
 
-/* Horizontal line ===== */
-void hline2(void) {
+void hlinechar(char c) {
 	uint i;
 	for (i = 0; i < 80; ++i)
-		putchar('=');
+		putchar(c);
 }
 
 
@@ -641,6 +638,7 @@ void firstblk(char *dirname, uchar *device, uint *block) {
 	*device = *lastdev;
 	slot = (*lastdev & 0x70) >> 4;
 	drive = ((*lastdev & 0x80) >> 7) + ((*lastdev & 0x03) << 1) + 1;
+	clrscr();
 	printf("[Slot %u, Drive %u]\n", slot, drive);
 	*device = slot + (drive - 1) * 8;
 	dio_hdl = dio_open(*device);
@@ -1155,7 +1153,7 @@ int readdir(uint device, uint blocknum) {
 	fixcase(hdr->name, currdir,
 	        hdr->vers, hdr->minvers, hdr->typ_len & 0x0f);
 
-	hline2();
+	hlinechar('=');
 	printf("Directory %s (%u", currdir, filecount);
 	printf(" %s)\n", filecount == 1 ? "entry" : "entries");
 	hline();
@@ -1443,7 +1441,7 @@ void buildsorttable(char s, uchar callidx) {
 					for (i = 0; i < (ent->typ_len & 0x0f); ++i)
 						filelist[idx].name[i] = namebuf[i];
 					break;
-				case 'f':
+				case 'd':
 				case 't':
 					filelist[idx].type = ent->type;
 					break;
@@ -1455,8 +1453,10 @@ void buildsorttable(char s, uchar callidx) {
 					filelist[idx].eof = 
 					  ent->eof[0] + 256L * ent->eof[1] + 65536L * ent->eof[2];
 					break;
-				case 'd':
-					readdatetime(do_ctime ? ent->ctime : ent->mtime, &dt);
+				case 'c':
+					readdatetime(ent->ctime, &dt);
+				case 'm':
+					readdatetime(ent->mtime, &dt);
 					sprintf(filelist[idx].datetime, "%04d%02d%02d%02d%02d",
 			        		dt.year, dt.month, dt.day, dt.hour, dt.minute);
 					break;
@@ -1664,11 +1664,13 @@ void sortlist(char s) {
 		qsort(filelist, numfiles, sizeof(struct fileent),
 		      cmp_name_desc_ci);
 		break;
-	case 'd':
+	case 'c':
+	case 'm':
 		qsort(filelist, numfiles, sizeof(struct fileent),
 		      cmp_datetime_asc);
 		break;
-	case 'D':
+	case 'C':
+	case 'M':
 		qsort(filelist, numfiles, sizeof(struct fileent),
 		      cmp_datetime_desc);
 		break;
@@ -1680,11 +1682,11 @@ void sortlist(char s) {
 		qsort(filelist, numfiles, sizeof(struct fileent),
 		      cmp_type_desc);
 		break;
-	case 'f':
+	case 'd':
 		qsort(filelist, numfiles, sizeof(struct fileent),
 		      cmp_dir_beg);
 		break;
-	case 'F':
+	case 'D':
 		qsort(filelist, numfiles, sizeof(struct fileent),
 		      cmp_dir_end);
 		break;
@@ -1713,33 +1715,6 @@ void sortlist(char s) {
 	}
 }
 
-#endif
-
-/*
- * Print the file info stored in filelist[]
- */
-#if 0
-void printlist(void) {
-	uint i, j;
-	hline();
-	fputs("Dirblk Entry Type : Name            : Blocks      EOF ", stdout);
-	if (do_ctime)
-		puts("Created");
-	else
-		puts("Modified");
-	for (i = 0; i < numfiles; ++i) {
-		printf("   %03u    %02u   %02x : %s",
-		       filelist[i].blockidx,
-		       filelist[i].entrynum,
-		       filelist[i].type,
-		       filelist[i].name);
-		for (j=0; j<(16-strlen(filelist[i].name)); ++j)
-			putchar(' ');
-		printf(": %5u  %8lu", filelist[i].blocks, filelist[i].eof);
-		printf(" %s\n", filelist[i].datetime);
-	}
-	hline();
-}
 #endif
 
 /*
@@ -1875,6 +1850,18 @@ void freeblocks(void) {
 	blocks = NULL;
 }
 
+void subtitle(char *s) {
+	uchar i;
+	putchar('\n');
+	hlinechar('_');
+	revers(1);
+	fputs(s, stdout);
+	revers(0);
+	for (i = strlen(s); i < 79; ++i)
+		putchar(' ');
+	putchar('|');
+}
+
 void interactive(void) {
 	char w, l, d, f, wrt;
 #ifdef FREELIST
@@ -1885,19 +1872,25 @@ void interactive(void) {
 	doverbose = 1;
 
 	revers(1);
-	puts("S O R T D I R  v0.70 alpha                 Use ^ to return to previous question");
+	hlinechar(' ');
+	fputs("S O R T D I R  v0.70 alpha                  Use ^ to return to previous question", stdout);
+	hlinechar(' ');
 	revers(0);
 
 q1:
-	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
+	putchar('\n');
+	revers(1);
+	fputs("Enter start path>", stdout);
+	revers(0);
+	putchar(' ');
 	scanf("%s", buf);
 	getchar(); // Eat the carriage return
 
 q2:
 	dowholedisk = dorecurse = 0;
-	puts("\nWhat to process ...");
+	subtitle("What to process"); 
 	do {
-		puts("[-] Single directory  [t] Tree  [v] whole volume");
+		fputs("| [-] Directory  | [t] Tree                |  [v] Volume   |                   |", stdout);
 		w = getchar();
 	} while (strchr("-tv^", w) == NULL);
 	if (w == '^')
@@ -1912,16 +1905,17 @@ q2:
 	}
 
 q3:
-	puts("\nMulti-level directory sort ...");
-	puts(" Lower case option ascending order, upper case option descending order");
-	puts(" [nN] Name            [iI] Name (case-insens)  [dD] Date/Time         [tT] Type");
-	puts(" [fF] Folders (dirs)  [bB] Blks used           [eE] EOF (file size)");
-	fputs(" [-] Done with sorting", stdout);
+	subtitle("Multi-level directory sort");
+    //     12345678901234567890123456789012345678901234567890123456789012345678901234567890
+	fputs("| Lower case option ascending order, upper case option descending order        |", stdout);
+	fputs("| [nN] Name      | [iI] Name (case-insens) | [tT] Type     | [dD] Directories  |", stdout);
+	fputs("| [cC] Creation  | [mM] Modification       | [bB] Blocks   | [eE] EOF Position |", stdout);
+	fputs("| [-]  Done      |                         |               |                   |", stdout);
 	for (level = 0; level < NLEVELS; ++level) {
 		do {
 			printf("\nLevel %d > ", level+1);
 			sortopts[level] = getchar();
-		} while (strchr("-nNiIdDtTfFbBeE^", sortopts[level]) == NULL);
+		} while (strchr("-nNiItTdDcCmMbBeE^", sortopts[level]) == NULL);
 		if (sortopts[level] == '-') {
 			sortopts[level] = '\0';
 			break;
@@ -1932,9 +1926,11 @@ q3:
 	sortopts[NLEVELS] = '\0';
 
 q4:
-	puts("\nFilename case conversion ...");
+	subtitle("Filename case conversion");
 	do {
-		puts("[-] No change  [l] Lower case  [u] Upper case  [i] Initial case  [c] Camel case");
+    //         12345678901234567890123456789012345678901234567890123456789012345678901234567890
+		fputs("| [-] No change  |                         |               |                   |", stdout);
+		fputs("| [l] Lowercase  | [u] Uppercase           | [i] Initial   | [c] Camelcase     |", stdout);
 		l = getchar();
 	} while (strchr("-luic^", l) == NULL);
 	if (l == '^')
@@ -1943,9 +1939,9 @@ q4:
 		caseopts[0] = l;
 
 q5:
-	puts("\nOn-disk date format conversion ...");
+	subtitle("Date format conversion");
 	do {
-		puts("[-] No change  [n] -> New ProDOS 2.5 format  [o] -> Old legacy ProDOS format");
+		fputs("| [-] No change  | [n] 'New' ProDOS 2.5+   | [o] 'Old' legacy format           |",stdout);
 		d = getchar();
 	} while (strchr("-no^", d) == NULL);
 	if (d == '^')
@@ -1954,9 +1950,9 @@ q5:
 		dateopts[0] = d;
 
 q6:	
-	puts("\nAttempt to fix errors? ...");
+	subtitle("Attempt to fix errors?");
 	do {
-		puts("[-] Never fix  [?] Ask before fixing  [a] Always fix");
+		fputs("| [-] Never fix  | [?] Ask before fixing   | [a] Always fix                    |", stderr); 
 		f = getchar();
 	} while (strchr("-?a^", f) == NULL);
 	if (f == '^')
@@ -1966,9 +1962,9 @@ q6:
 #ifdef FREELIST
 q7:
 	if (w == 'v') {
-		puts("\nZero free space? ...");
+		subtitle("Zero free space?");
 		do {
-			puts("[-] No, don't zero  [z] Yes, zero free blocks");
+			fputs("| [-] No         | [z] Zero free blocks    |                                   |", stderr);
 			z = getchar();
 		} while (strchr("-z^", z) == NULL);
 		if (z == '^')
@@ -1979,9 +1975,9 @@ q7:
 #endif
 
 q8:	
-	puts("\nAllow writing to disk? ...");
+	subtitle("Confirm write to disk");
 	do {
-		puts("[-] No, don't write (Dry run)  [w] Yes, commit changes to disk");
+		fputs("| [-] No         | [w] Write to disk       |                                   |", stderr);
 		wrt = getchar();
 	} while (strchr("-w^", wrt) == NULL);
 	if (wrt == '^')
@@ -1992,8 +1988,6 @@ q8:
 #endif
 	if (wrt == 'w')
 		dowrite = 1;
-
-//do_ctime = 0;       /* -k ctime option */
 }
 
 
@@ -2024,8 +2018,12 @@ void processdir(uint device, uint blocknum) {
 		if (dowrite) {
 			puts("Writing dir ...");
 			errs = writedir(device);
-		} else
-			puts("** NOT writing dir");
+		} else {
+			revers(1);
+			fputs("Not writing dir", stdout);
+			revers(0);
+			putchar('\n');
+		}
 	}
 #endif
 done:
@@ -2122,7 +2120,6 @@ void usage(void) {
 	printf("           -r      Recursive descent\n");
 	printf("           -D      Whole-disk mode (implies -r)\n");
 	printf("           -w      Enable writing to disk\n");
-	printf("           -c      Use create time rather than modify time\n");
 	printf("           -z      Zero free space\n");
 	printf("           -v      Verbose output\n");
 	printf("           -V      Verbose debugging output\n");
@@ -2144,12 +2141,14 @@ void usage(void) {
 	printf("  N  sort by filename descending\n");
 	printf("  i  sort by filename ascending - case insensitive\n");
 	printf("  I  sort by filename descending - case insensitive\n");
-	printf("  d  sort by modify (or create [-c]) date ascending\n");
-	printf("  D  sort by modify (or create [-c]) date descending\n");
+	printf("  c  sort by create date/time ascending\n");
+	printf("  C  sort by create date/time descending\n");
+	printf("  m  sort by modify date/time ascending\n");
+	printf("  M  sort by modify date/time descending\n");
 	printf("  t  sort by type ascending\n");
 	printf("  T  sort by type descending\n");
-	printf("  f  sort folders (directories) to top\n");
-	printf("  F  sort folders (directories) to bottom\n");
+	printf("  d  sort directories to top\n");
+	printf("  D  sort directories to bottom\n");
 	printf("  b  sort by blocks used ascending\n");
 	printf("  B  sort by blocks used descending\n");
 	printf("  e  sort by EOF position ascending\n");
@@ -2242,11 +2241,8 @@ int main() {
 	else {
 		if (argc < 2)
 			usage();
-		while ((opt = getopt(argc, argv, "cDrwvVzs:n:f:d:h")) != -1) {
+		while ((opt = getopt(argc, argv, "DrwvVzs:n:f:d:h")) != -1) {
 			switch (opt) {
-			case 'c':
-				do_ctime = 1;
-				break;
 			case 'D':
 				dowholedisk = 1;
 				dorecurse = 1;
