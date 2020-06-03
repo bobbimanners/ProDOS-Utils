@@ -29,7 +29,7 @@
  * v0.66 Modified to build sorted blocks on the fly rather than in aux memory.
  * v0.67 Fixed bug in v0.66 where garbage was written to end of directory.
  * v0.68 Cleaned up error msgs.
- * v0.69 Fixed support for drive number >2.
+ * v0.69 Fixed support for drive number >2. (cc65 needs to be fixed too!)
  */
 
 //#pragma debug 9
