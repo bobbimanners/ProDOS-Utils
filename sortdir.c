@@ -29,7 +29,7 @@
  * v0.67 Fixed bug in v0.66 where garbage was written to end of directory.
  * v0.68 Cleaned up error msgs.
  * v0.69 Fixed support for drive number >2. (cc65 needs to be fixed too!)
- * v0.70 ...
+ * v0.70 Reverse video signon.
  */
 
 //#pragma debug 9
@@ -51,6 +51,7 @@
 //#include <prodos.h>
 #include <apple2enh.h>
 #include <dio.h>
+#include <conio.h> // For revers()
 
 #define CHECK		/* Perform additional integrity checking */
 #define SORT        /* Enable sorting code */
@@ -1883,7 +1884,9 @@ void interactive(void) {
 
 	doverbose = 1;
 
+	revers(1);
 	puts("S O R T D I R  v0.70 alpha                 Use ^ to return to previous question");
+	revers(0);
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
