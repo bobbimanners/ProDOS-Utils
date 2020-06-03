@@ -638,7 +638,7 @@ void firstblk(char *dirname, uchar *device, uint *block) {
 	drive = ((*lastdev & 0x80) >> 7) + ((*lastdev & 0x03) << 1) + 1;
 	printf("[Slot %u, Drive %u]\n", slot, drive);
 	*device = slot + (drive - 1) * 8;
-	dio_hdl = dio_open(*device); // TODO should dio_close on exit
+	dio_hdl = dio_open(*device);
 
 	hdr = (struct pd_dirhdr*)(buf + PTRSZ);
 
