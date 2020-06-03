@@ -31,16 +31,34 @@ ProDOS 2.5.
 Download the disk image `sortdir.po`.  This is a bootable 143KB (Disk \]\[)
 ProDOS 2.5 disk image which includes `SORTDIR.SYSTEM`, ready-to-run.
 
-### Build Instructions
+### Build Build Tools & Instructions
+
+#### `cc65`
 
 If you want to build *Sortdir* (and perhaps contribute to the code!), you
 will require the [`cc65`](https://github.com/cc65/cc65) C cross compiler for
 6502.
 
+The `cc65` Direct I/O (DIO) routines do not yet support more than two drives
+per slot.  ProDOS 2.5 implements an extension to the device number to allow
+up to eight drives to be supported per slot.  If you require support for more
+than two drives, you will have to build your own `cc65`, which you can clone
+from the link above.  Please copy the following two files to
+`cc65/libsrc/apple2`:
+
+ - `cc65-dio-fix/dioopen.s`
+ - `cc65-dio-fix/isdevice.s`
+
+#### Cadius
+
 I also use [Cadius](https://github.com/mach-kernel/cadius) for copying
 `sortdir.system#ff0000` to an Apple II disk image.
 
+#### Build Instructions
+
 On a Linux system, you should be able to build by simply invoking `make`.
+This will build `SORTDIR.SYSTEM` and also the test Disk \]\[ image 
+`sortdir.po`.
 
 ### How to Run `SORTDIR.SYSTEM`
 
