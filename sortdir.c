@@ -2112,7 +2112,7 @@ void zerofreeblocks(uchar device, uint freeblks) {
 #ifdef CMDLINE
 
 void usage(void) {
-	printf("usage: sortdir [-s xxx] [-n x] [-rDwcvVh] path\n\n");
+	printf("usage: sortdir [-s xxx] [-n x] [-rDwvVh] path\n\n");
 	printf("  Options: -s xxx  Directory sort options\n");
 	printf("           -n x    Filename upper/lower case options\n");
 	printf("           -d x    Date format conversion options\n");
