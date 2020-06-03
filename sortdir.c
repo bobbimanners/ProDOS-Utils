@@ -4,7 +4,6 @@
  * Bobbi January-June 2020
  *
  * TODO: Get rid of -k option. Add proper options for sorting on creation time.
- * TODO: Get working on drives >2 (S7D3, S7D4 etc.)
  * TODO: Enable free list functionality on ProDOS-8 using aux mem
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  * TODO: Trimming unused directory blocks
