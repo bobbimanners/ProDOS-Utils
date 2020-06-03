@@ -29,6 +29,7 @@
  * v0.67 Fixed bug in v0.66 where garbage was written to end of directory.
  * v0.68 Cleaned up error msgs.
  * v0.69 Fixed support for drive number >2. (cc65 needs to be fixed too!)
+ * v0.70 ...
  */
 
 //#pragma debug 9
@@ -234,14 +235,18 @@ static const char err_used2[]    = "Blks used %u is wrong, should be %u";
 static const char err_many[]     = "Too many files to sort";
 static const char err_count2[]   = "Filecount %u wrong, should be %u";
 static const char err_nosort[]   = "Errors ... will not sort";
+#ifdef FREELIST
 static const char err_rdfl[]     = "Can't read free list";
 static const char err_blfree1[]  = "In use blk %u is marked free";
 static const char err_blfree2[]  = "%s blk %u is marked free";
 static const char err_blused1[]  = "Unused blk %u is not marked free";
 static const char err_blused2[]  = "%s blk %u used elsewhere";
+#endif
 static const char err_updsdir1[] = "Can't update subdir entry (%s)";
 static const char err_invopt[]   = "Invalid %s option";
+#ifdef CMDLINE
 static const char err_usage[]    = "Usage error";
+#endif
 static const char err_80col[]    = "Need 80 cols";
 static const char err_128K[]     = "Need 128K";
 
@@ -1878,7 +1883,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.69 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.70 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
