@@ -126,12 +126,14 @@ The following prompts are presented in order:
             insensitive manner.
     - `I` - Sort by filename in descending alphabetical order (Z-A) in a case
             insensitive manner.
-    - `d` - Sort in ascending order of modification time/date.
-    - `D` - Sort in descending order of modification time/date.
+    - `c` - Sort in ascending order of creation time/date.
+    - `C` - Sort in descending order of creation time/date.
+    - `m` - Sort in ascending order of modification time/date.
+    - `M` - Sort in descending order of modification time/date.
     - `t` - Sort in ascending order of file type (considered as an integer)
     - `T` - Sort in descending order of file type (considered as an integer)
-    - `f` - Sort in directories ("folders") to the top.
-    - `F` - Sort in directories ("folders") to the bottom.
+    - `d` - Sort in directories to the top.
+    - `D` - Sort in directories to the bottom.
     - `b` - Sort in ascending order of file size in blocks.
     - `B` - Sort in descending order of file size in blocks.
     - `e` - Sort in ascending order of file size in bytes (ie: EOF position).
@@ -163,6 +165,8 @@ The following prompts are presented in order:
 ### Command Line Options
 
 ![](/Screenshots/BASIC_Launch.png)
+
+_NOTE: COMMAND LINE PARSING IS CURRENTLY CONDITIONALLY COMPILED OUT_
 
 ProDOS 2.5 introduces support for passing command line parameters when
 starting a `.SYSTEM` file.  If no command line parameters are passed
@@ -207,8 +211,8 @@ sortdir [-s xxx] [-n x] [-rDwvVh] path
       C  sort by creation date/time descending
       t  sort by type ascending
       T  sort by type descending
-      f  sort folders (directories) to top
-      F  sort folders (directories) to bottom
+      d  sort directories to top
+      D  sort directories to bottom
       b  sort by blocks used ascending
       B  sort by blocks used descending
       e  sort by EOF position ascending
@@ -220,7 +224,7 @@ sortdir [-s xxx] [-n x] [-rDwvVh] path
       y  always fix (be careful!)
 ```
     
-For example `sortdir -rw -snf /foo` will sort the tree rooted at directory
+For example `sortdir -rw -snd /foo` will sort the tree rooted at directory
 `/foo` first by name (ascending), then sort directories to the top, and will
 write the sorted directory to disk.
 
