@@ -97,13 +97,14 @@ entering the `^` (caret) character will go back to the previous question.
 When in doubt, the `-` (minus) character is mapped to the most conservative
 choice for each option.
 
-In the example shown above, the user has requested that the `/gno/usr` 
-tree be processed (ie: `/gno/usr` and all directories underneath it in
-the heirarchy.)  Two levels of directory sorting are to be performed,
+In the example shown above, the user has requested that the entire volume
+`/h1` be processed.  Two levels of directory sorting are to be performed,
 first by name (in ascending order) and then to sort the directories
-to the bottom.  No conversion of filename case will be performed, but
-modification and creation time dates will be updated to the new ProDOS 2.5+
-format.
+to the bottom.
+
+![](/Screenshots/Interactive-2.png)
+
+No conversion of filename case or dates will be performed for this example.
 
 The following prompts are presented in order:
 
@@ -114,7 +115,7 @@ The following prompts are presented in order:
     directory specified here.)
   - *What to process ...* There are three options:
     - `-` - Only operate on the specified directory.
-    - `r` - Operate recursively, descending the tree from the specified
+    - `t` - Operate recursively, descending the tree from the specified
       directory.
     - `v` - Operate on the entire volume, descending the tree from the volume
       directory.
@@ -161,10 +162,7 @@ The following prompts are presented in order:
             settings to see what will happen.
     - `w` - Write changes to disk.
 
-
 ### Command Line Options
-
-![](/Screenshots/BASIC_Launch.png)
 
 _NOTE: COMMAND LINE PARSING IS CURRENTLY CONDITIONALLY COMPILED OUT_
 
