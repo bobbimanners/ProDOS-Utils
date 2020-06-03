@@ -29,6 +29,7 @@
  * v0.66 Modified to build sorted blocks on the fly rather than in aux memory.
  * v0.67 Fixed bug in v0.66 where garbage was written to end of directory.
  * v0.68 Cleaned up error msgs.
+ * v0.69 Fixed support for drive number >2.
  */
 
 //#pragma debug 9
@@ -508,19 +509,19 @@ void fixcase(char *in, char *out, uchar minvers, uchar vers, uchar len) {
 	uint i;
 	uchar idx = 0;
 	if (!(vers & 0x80)) {
-		for (idx=0; idx<NMLEN; ++idx)
+		for (idx = 0; idx < NMLEN; ++idx)
 			out[idx] = in[idx];
 		out[len] = '\0';
 		return;
 	}
 	vers <<= 1;
 	for (i = 0; i < 7; ++i) {
-		out[idx] = ((vers&0x80) ? tolower(in[idx]) : in[idx]);
+		out[idx] = ((vers & 0x80) ? tolower(in[idx]) : in[idx]);
 		++idx;
 		vers <<= 1;
 	}
 	for (i = 0; i < 8; ++i) {
-		out[idx] = ((minvers&0x80) ? tolower(in[idx]) : in[idx]);
+		out[idx] = ((minvers & 0x80) ? tolower(in[idx]) : in[idx]);
 		++idx;
 		minvers <<= 1;
 	}
@@ -627,9 +628,14 @@ void firstblk(char *dirname, uchar *device, uint *block) {
 //
 //	*device = st.st_dev;
 
+	/*
+	 * lastdev is in the following format:
+	 * ProDOS 2.5+  DSSS00DD (supports drives 1-8 for each slot)
+	 * ProDOS 2.x   DSSS0000 (supports drives 1-2 for each slot)
+	 */
 	*device = *lastdev;
 	slot = (*lastdev & 0x70) >> 4;
-	drive = ((*lastdev & 0x80) >> 7) + (*lastdev & 0x02) + 1;
+	drive = ((*lastdev & 0x80) >> 7) + ((*lastdev & 0x03) << 1) + 1;
 	printf("[Slot %u, Drive %u]\n", slot, drive);
 	*device = slot + (drive - 1) * 8;
 	dio_hdl = dio_open(*device); // TODO should dio_close on exit
@@ -1873,7 +1879,7 @@ void interactive(void) {
 
 	doverbose = 1;
 
-	puts("S O R T D I R  v0.68 alpha                 Use ^ to return to previous question");
+	puts("S O R T D I R  v0.69 alpha                 Use ^ to return to previous question");
 
 q1:
 	fputs("\nEnter path (e.g.: /H1) of starting directory> ", stdout);
