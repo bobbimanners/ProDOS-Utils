@@ -97,14 +97,16 @@ entering the `^` (caret) character will go back to the previous question.
 When in doubt, the `-` (minus) character is mapped to the most conservative
 choice for each option.
 
-In the example shown above, the user has requested that the entire volume
-`/h1` be processed.  Two levels of directory sorting are to be performed,
-first by name (in ascending order) and then to sort the directories
-to the bottom.
+In the example shown above, the user has requested that the subtree
+'/h1/a2osx.0.93'  be processed.  Two levels of directory sorting are to be
+performed, first by name (in ascending order) and then to sort the directories
+to the top.
 
 ![](/Screenshots/Interactive-2.png)
 
 No conversion of filename case or dates will be performed for this example.
+Creation and modification date/time values will be updated to the new
+ProDOS 2.5 format.
 
 The following prompts are presented in order:
 
@@ -245,8 +247,6 @@ For each directory processed, *Sortdir* performs the following steps:
   - If writing to disk is enabled then a message is shown confirming the
     updated directory has been written back to disk.  If writing to disk is
     not enabled, which is the default, a warning message is displayed.
-
-![](/Screenshots/Running-2.png)
 
 ### Directory Check and Repair
 
