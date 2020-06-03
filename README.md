@@ -171,7 +171,7 @@ the the interactive user interface is presented (see previous section.)
 The following command line syntax is supported:
 
 ```
-sortdir [-s xxx] [-n x] [-rDwcvVh] path
+sortdir [-s xxx] [-n x] [-rDwvVh] path
 
       Options: -s xxx  Directory sort options
                -n x    Filename upper/lower case options
@@ -180,7 +180,6 @@ sortdir [-s xxx] [-n x] [-rDwcvVh] path
                -r      Recursive descent
                -D      Whole-disk mode (implies -r)
                -w      Enable writing to disk
-               -c      Use create time rather than modify time
                -z      Zero free space
                -v      Verbose output
                -V      Verbose debugging output
@@ -202,8 +201,10 @@ sortdir [-s xxx] [-n x] [-rDwcvVh] path
       N  sort by filename descending
       i  sort by filename ascending - case insensitive
       I  sort by filename descending - case insensitive
-      d  sort by modify (or create [-c]) date ascending
-      D  sort by modify (or create [-c]) date descending
+      m  sort by modification date/time ascending
+      M  sort by modification date/time descending
+      c  sort by creation date/time ascending
+      C  sort by creation date/time descending
       t  sort by type ascending
       T  sort by type descending
       f  sort folders (directories) to top
