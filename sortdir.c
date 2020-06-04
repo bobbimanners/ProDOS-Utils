@@ -3,7 +3,8 @@
  *
  * Bobbi January-June 2020
  *
- * TODO: Enable free list functionality on ProDOS-8 using aux mem
+ * TODO: Speed up freelist/usedlist checking at the end (aux mem)
+ * TODO: Need code to write out modified freelist if there are fixes
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  * TODO: Trimming unused directory blocks
  *
@@ -30,6 +31,7 @@
  * v0.69 Fixed support for drive number >2. (cc65 needs to be fixed too!)
  * v0.70 Changed sort options to support mtime & ctime. Improved UI a bit.
  * v0.71 Added support for allocating aux LC memory.
+ * v0.72 Initial support for freelist and usedlist in aux mem. (Slow!)
  */
 
 //#pragma debug 9
@@ -55,7 +57,7 @@
 
 #define CHECK		/* Perform additional integrity checking */
 #define SORT        /* Enable sorting code */
-#undef FREELIST     /* Checking of free list */
+#define FREELIST    /* Checking of free list */
 #define AUXMEM      /* Auxiliary memory support on //e and up */
 #undef CMDLINE      /* Command line option parsing */
 
@@ -242,8 +244,8 @@ static const char err_nosort[]   = "Errors ... will not sort";
 #ifdef FREELIST
 static const char err_rdfl[]     = "Can't read free list";
 static const char err_blfree1[]  = "In use blk %u is marked free";
-static const char err_blfree2[]  = "%s blk %u is marked free";
-static const char err_blused1[]  = "Unused blk %u is not marked free";
+static const char err_blfree2[]  = "%s blk %u marked free";
+static const char err_blused1[]  = "Unused blk %u not marked free";
 static const char err_blused2[]  = "%s blk %u used elsewhere";
 #endif
 static const char err_updsdir1[] = "Can't update subdir entry (%s)";
@@ -260,7 +262,7 @@ static const char err_128K[]     = "Need 128K";
 void copyaux(char *src, char *dst, uint len, uchar dir);
 char *auxalloc(uint bytes);
 char *auxalloc2(uint bytes);
-void lockaux(char *p);
+void lockaux(void);
 void freeallaux(void);
 #endif
 void hline(void);
@@ -281,9 +283,9 @@ uint askfix(void);
 #ifdef FREELIST
 int  readfreelist(uchar device);
 int  isfree(uint blk);
+int  isused(uint blk);
 void markfree(uint blk);
 void marknotfree(uint blk);
-int  isused(uint blk);
 void markused(uint blk);
 void checkblock(uint blk, char *msg);
 #endif
@@ -372,14 +374,16 @@ char *auxalloc(uint bytes) {
 char *auxalloc2(uint bytes) {
 	char *p = auxp2;
 	auxp2 += bytes;
-	if (auxp2 > (char*)ENDAUX2)
+	if (auxp2 < p) // ie: wrap around $ffff
 		err(FATAL, err_noaux);
 	return p;
 }
 
-/* Lock aux memory below address provided */
-void lockaux(char *p) {
-	auxlockp = p;
+/* Lock aux memory below address provided
+ * Must be in main bank
+ */
+void lockaux(void) {
+	auxlockp = auxp;
 }
 
 /* Free all aux memory above lock address */
@@ -401,16 +405,16 @@ void hlinechar(char c) {
 		putchar(c);
 }
 
+void confirm() {
+	puts("[Press any key to restart system]");
+	getchar();
+}
+
 
 /****************************************************************************/
 /* LANGUAGE CARD BANK 2 0xd400-x0dfff 3KB                                   */
 /****************************************************************************/
 #pragma code-name (push, "LC")
-
-void confirm() {
-	puts("[Press any key to restart system]");
-	getchar();
-}
 
 
 /*
@@ -419,6 +423,7 @@ void confirm() {
 void err(enum errtype severity, const char *fmt, ...) {
 	va_list v;
 	uint rv = 0;
+	putchar('\n');
 	rebootafterexit(); // Necessary if we were called from BASIC
 	if (severity == FINISHED) {
 		hline();
@@ -445,9 +450,8 @@ void err(enum errtype severity, const char *fmt, ...) {
 	va_start(v, fmt);
 	vprintf(fmt, v);
 	va_end(v);
-	putchar('\n');
 	if (rv > 0) {
-		printf("Stopping after %u errors\n", errcount);
+		printf("\nStopping after %u errors\n", errcount);
 		confirm();
 		exit(rv);
 	}
@@ -793,14 +797,16 @@ uint askfix(void) {
 int readfreelist(uchar device) {
 	uint i, flblk, flsize;
 	char *p;
-	freelist = (uchar*)malloc(FLSZ);
-	if (!freelist)
-		err(FATALALLOC, err_nomem);
+#ifdef AUXMEM
+	bzero(buf, BLKSZ);
+	for (i = 0; i < 16; ++i) {
+		copyaux(buf, freelist + i * BLKSZ, BLKSZ, TOAUX);
+		copyaux(buf, usedlist + i * BLKSZ, BLKSZ, TOAUX);
+	}
+#else
 	bzero(freelist, FLSZ);
-	usedlist = (uchar*)malloc(FLSZ);
-	if (!usedlist)
-		err(FATALALLOC, err_nomem);
 	bzero(usedlist, FLSZ);
+#endif
 	markused(0); /* Boot block */
 	markused(1); /* SOS boot block */
 	if (readdiskblock(device, 2, buf) == -1) {
@@ -812,15 +818,22 @@ int readfreelist(uchar device) {
 	if (doverbose)
 		printf("Volume has %u blocks\n", totblks);
 	flsize = totblks / 4096U;
-	if ((flsize % 4096) >0)
+	if ((totblks % 4096) > 0)
 		++flsize;
 	p = (char*)freelist;
 	for (i = 0; i < flsize; ++i) {
 		markused(flblk);
+#ifdef AUXMEM
+		if (readdiskblock(device, flblk++, buf) == -1) {
+#else
 		if (readdiskblock(device, flblk++, p) == -1) {
+#endif
 			err(NONFATAL, err_rdfl);
 			return -1;
 		}
+#ifdef AUXMEM
+		copyaux(buf, p, BLKSZ, TOAUX);
+#endif
 		p += BLKSZ;
 	}
 	flloaded = 1;
@@ -831,45 +844,78 @@ int readfreelist(uchar device) {
  * Determine if block blk is free or not
  */
 int isfree(uint blk) {
+	uchar temp;
 	uint idx = blk / 8;
 	uint bit = blk % 8;
+#ifdef AUXMEM
+	copyaux(freelist + idx, &temp, 1, FROMAUX);
+	return (temp << bit) & 0x80 ? 1 : 0;
+#else
 	return (freelist[idx] << bit) & 0x80 ? 1 : 0;
-}
-
-/*
- * Mark a block as free
- */
-void markfree(uint blk) {
-	uint idx = blk / 8;
-	uint bit = blk % 8;
-	freelist[idx] |= (0x80 >> bit);
-}
-
-/*
- * Mark a block as not free
- */
-void marknotfree(uint blk) {
-	uint idx = blk / 8;
-	uint bit = blk % 8;
-	freelist[idx] &= ~(0x80 >> bit);
+#endif
 }
 
 /*
  * Determine if block blk is used or not
  */
 int isused(uint blk) {
+	uchar temp;
 	uint idx = blk / 8;
 	uint bit = blk % 8;
+#ifdef AUXMEM
+	copyaux(usedlist + idx, &temp, 1, FROMAUX);
+	return (temp << bit) & 0x80 ? 1 : 0;
+#else
 	return (usedlist[idx] << bit) & 0x80 ? 1 : 0;
+#endif
+}
+
+/*
+ * Mark a block as free
+ */
+void markfree(uint blk) {
+	uchar temp;
+	uint idx = blk / 8;
+	uint bit = blk % 8;
+#ifdef AUXMEM
+	copyaux(freelist + idx, &temp, 1, FROMAUX);
+	temp |= (0x80 >> bit);
+	copyaux(&temp, freelist + idx, 1, TOAUX);
+#else
+	freelist[idx] |= (0x80 >> bit);
+#endif
+}
+
+/*
+ * Mark a block as not free
+ */
+void marknotfree(uint blk) {
+	uchar temp;
+	uint idx = blk / 8;
+	uint bit = blk % 8;
+#ifdef AUXMEM
+	copyaux(freelist + idx, &temp, 1, FROMAUX);
+	temp &= ~(0x80 >> bit);
+	copyaux(&temp, freelist + idx, 1, TOAUX);
+#else
+	freelist[idx] &= ~(0x80 >> bit);
+#endif
 }
 
 /*
  * Mark a block as used
  */
 void markused(uint blk) {
+	uchar temp;
 	uint idx = blk / 8;
 	uint bit = blk % 8;
+#ifdef AUXMEM
+	copyaux(usedlist + idx, &temp, 1, FROMAUX);
+	temp |= (0x80 >> bit);
+	copyaux(&temp, usedlist + idx, 1, TOAUX);
+#else
 	usedlist[idx] |= (0x80 >> bit);
+#endif
 }
 
 /*
@@ -1894,7 +1940,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.71 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.72 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
@@ -1995,7 +2041,6 @@ q7:
 	}
 #endif
 
-q8:	
 	subtitle("Confirm write to disk");
 	do {
 		fputs("| [-] No         | [w] Write to disk       |                                   |", stderr);
@@ -2063,17 +2108,19 @@ done:
  */
 void checkfreeandused(uchar device) {
 	uint i, freeblks = 0;
-	printf("Total blks\t%u\n", totblks);
+	printf("Total blks %u\n", totblks);
 	for (i = 0; i < totblks; ++i)
 		if (isfree(i))
 			++freeblks;
-	printf("Free blks\t%u\n", freeblks);
+	printf("Free blks  %u\n", freeblks);
 //	printf("Percentage full\t\t%.1f\n",
 //	       100.0 * (float)(totblks - freeblks) / totblks);
 	for (i = 0; i < totblks; ++i) {
 		uint idx = i / 8;
-		if (!(freelist[idx] ^ usedlist[i]))	/* Speed-up */
+#ifndef AUXMEM
+		if (!(freelist[idx] ^ usedlist[idx]))	/* Speed-up */
 			continue;
+#endif
 		if (isfree(i)) {
 			if (isused(i)) {
 				err(NONFATAL, err_blfree1, i);
@@ -2088,6 +2135,7 @@ void checkfreeandused(uchar device) {
 			}
 		}
 	}
+	// TODO: NEED SOME CODE TO WRITE OUT MODIFIED FREE LIST!!
 	if (dozero)
 		zerofreeblocks(device, freeblks);
 }
@@ -2243,6 +2291,25 @@ int main() {
 
 	_heapadd((void*)0x0800, 0x1800);
 	//printf("\nHeap: %u %u\n", _heapmemavail(), _heapmaxavail());
+
+#ifdef AUXMEM
+	freelist = (uchar*)auxalloc(FLSZ);
+#else
+	freelist = (uchar*)malloc(FLSZ);
+#endif
+	if (!freelist)
+		err(FATALALLOC, err_nomem);
+#ifdef AUXMEM
+	usedlist = (uchar*)auxalloc(FLSZ);
+#else
+	usedlist = (uchar*)malloc(FLSZ);
+#endif
+	if (!usedlist)
+		err(FATALALLOC, err_nomem);
+
+#ifdef AUXMEM
+	lockaux(); // Protect free list and used list
+#endif
 
 	buf =  (char*)malloc(sizeof(char) * BLKSZ);
 	buf2 =  (char*)malloc(sizeof(char) * BLKSZ);
