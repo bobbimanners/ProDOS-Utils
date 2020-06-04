@@ -29,6 +29,7 @@
  * v0.68 Cleaned up error msgs.
  * v0.69 Fixed support for drive number >2. (cc65 needs to be fixed too!)
  * v0.70 Changed sort options to support mtime & ctime. Improved UI a bit.
+ * v0.71 Added support for allocating aux LC memory.
  */
 
 //#pragma debug 9
@@ -175,9 +176,13 @@ struct datetime {
  * Globals
  */
 #ifdef AUXMEM
-#define STARTAUX 0x0800
-#define ENDAUX   0xbfff
-static char *auxp = (char*)STARTAUX;     /* Pointer for allocating aux mem */
+#define STARTAUX1 0x0800 // 46K main aux block
+#define ENDAUX1   0xbfff
+#define STARTAUX2 0xd000 // 12K block in aux LC
+#define ENDAUX2   0xffff
+static char *auxp     = (char*)STARTAUX1;    /* For allocating aux main */
+static char *auxp2    = (char*)STARTAUX2;    /* For allocating aux LC */
+static char *auxlockp = (char*)STARTAUX1;    /* Aux mem protection */
 #endif
 #ifdef FREELIST
 static uint totblks;                     /* Total # blocks on volume */
@@ -254,6 +259,8 @@ static const char err_128K[]     = "Need 128K";
 #ifdef AUXMEM
 void copyaux(char *src, char *dst, uint len, uchar dir);
 char *auxalloc(uint bytes);
+char *auxalloc2(uint bytes);
+void lockaux(char *p);
 void freeallaux(void);
 #endif
 void hline(void);
@@ -356,15 +363,29 @@ void copyaux(char *src, char *dst, uint len, uchar dir) {
 char *auxalloc(uint bytes) {
 	char *p = auxp;
 	auxp += bytes;
-	//printf("0x%p\n", auxp);
-	if (auxp > (char*)ENDAUX)
+	if (auxp > (char*)ENDAUX1)
+		return auxalloc2(bytes);
+	return p;
+}
+
+/* Extremely simple aux memory allocator */
+char *auxalloc2(uint bytes) {
+	char *p = auxp2;
+	auxp2 += bytes;
+	if (auxp2 > (char*)ENDAUX2)
 		err(FATAL, err_noaux);
 	return p;
 }
 
-/* Free all aux memory */
+/* Lock aux memory below address provided */
+void lockaux(char *p) {
+	auxlockp = p;
+}
+
+/* Free all aux memory above lock address */
 void freeallaux() {
-	auxp = (char*)STARTAUX;
+	auxp = (char*)auxlockp;
+	auxp2 = (char*)STARTAUX2;
 }
 
 #endif
@@ -1873,7 +1894,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.70 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.71 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
