@@ -3,7 +3,7 @@
  *
  * Bobbi January-June 2020
  *
- * TODO: Speed up freelist/usedlist checking at the end (aux mem)
+ * TODO: zeroblock() is NO-OP at present
  * TODO: Need code to write out modified freelist if there are fixes
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  * TODO: Trimming unused directory blocks
@@ -32,6 +32,7 @@
  * v0.70 Changed sort options to support mtime & ctime. Improved UI a bit.
  * v0.71 Added support for allocating aux LC memory.
  * v0.72 Initial support for freelist and usedlist in aux mem. (Slow!)
+ * v0.73 Speedup to checkfreeandused();
  */
 
 //#pragma debug 9
@@ -191,6 +192,7 @@ static uint totblks;                     /* Total # blocks on volume */
 static uchar *freelist;                  /* Free-list bitmap */
 static uchar *usedlist;                  /* Bit map of used blocks */
 static uchar flloaded = 0;               /* 1 if free-list has been loaded */
+static uint flsize;                      /* Size of free-list in blocks */
 #endif
 static char currdir[NMLEN+1];            /* Name of current directory */
 static struct block *blocks = NULL;      /* List of directory disk blocks */
@@ -795,7 +797,7 @@ uint askfix(void) {
  * Read the free list
  */
 int readfreelist(uchar device) {
-	uint i, flblk, flsize;
+	uint i, flblk;
 	char *p;
 #ifdef AUXMEM
 	bzero(buf, BLKSZ);
@@ -1940,7 +1942,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.72 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.73 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
@@ -2027,7 +2029,6 @@ q6:
 	fixopts[0] = ((f == '-') ? 'n' : f);
 
 #ifdef FREELIST
-q7:
 	if (w == 'v') {
 		subtitle("Zero free space?");
 		do {
@@ -2047,11 +2048,7 @@ q7:
 		wrt = getchar();
 	} while (strchr("-w^", wrt) == NULL);
 	if (wrt == '^')
-#ifdef FREELIST
-		goto q7;
-#else
 		goto q6;
-#endif
 	if (wrt == 'w')
 		dowrite = 1;
 }
@@ -2107,37 +2104,46 @@ done:
  * block should either be marked free or marked used.
  */
 void checkfreeandused(uchar device) {
-	uint i, freeblks = 0;
-	printf("Total blks %u\n", totblks);
-	for (i = 0; i < totblks; ++i)
-		if (isfree(i))
-			++freeblks;
-	printf("Free blks  %u\n", freeblks);
-//	printf("Percentage full\t\t%.1f\n",
-//	       100.0 * (float)(totblks - freeblks) / totblks);
-	for (i = 0; i < totblks; ++i) {
-		uint idx = i / 8;
-#ifndef AUXMEM
-		if (!(freelist[idx] ^ usedlist[idx]))	/* Speed-up */
-			continue;
+	uchar fl, ul, bit;
+	uint byte, blk = 1, blkcnt = 0;
+	printf("Total blks %u", totblks);
+	for (byte = 0; byte < flsize * 256; ++byte) {
+#ifdef AUXMEM
+		copyaux(freelist + byte, &fl, 1, FROMAUX);
+		copyaux(usedlist + byte, &ul, 1, FROMAUX);
+#else
+		fl = freelist[byte];
+		ul = usedlist[byte];
 #endif
-		if (isfree(i)) {
-			if (isused(i)) {
-				err(NONFATAL, err_blfree1, i);
-				if (askfix() == 1)
-					marknotfree(i);
+		for (bit = 0; bit < 8; ++bit) {
+			if (blk > totblks)
+				break;
+			if ((fl << bit) & 0x80) {
+				/* Free */
+				if ((ul << bit) & 0x80) {
+					/* ... and used */
+					err(NONFATAL, err_blfree1, blk);
+					if (askfix() == 1)
+						marknotfree(blk);
+				}
+			} else {
+				/* Not free */
+				++blkcnt;
+				if (!((ul << bit) & 0x80)) {
+					/* ... and not used */
+					err(NONFATAL, err_blused1, blk);
+					if (askfix() == 1)
+						markfree(blk);
+				}
 			}
-		} else {
-			if (!isused(i)) {
-				err(NONFATAL, err_blused1, i);
-				if (askfix() == 1)
-					markfree(i);
-			}
+			++blk;
 		}
 	}
+	printf("\nFree blks  %u\n", totblks - blkcnt);
+
 	// TODO: NEED SOME CODE TO WRITE OUT MODIFIED FREE LIST!!
 	if (dozero)
-		zerofreeblocks(device, freeblks);
+		zerofreeblocks(device, totblks - blkcnt);
 }
 
 /*
