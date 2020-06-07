@@ -4,8 +4,8 @@
  * Bobbi January-June 2020
  *
  * TODO: Fix bug - blocks used count is incorrect.
- * TODO: Fix bug - when 'too many files' should skip dir and continue.
- *       Right now it tries to sort, then hangs.
+ * TODO: Fix bug - if too many files in a directory the blocks of the remaining
+ *       files are not marked as used.
  * TODO: zeroblock() is NO-OP at present
  * TODO: Need code to write out modified freelist if there are fixes
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
@@ -37,6 +37,7 @@
  * v0.72 Initial support for freelist and usedlist in aux mem. (Slow!)
  * v0.73 Speedup to checkfreeandused();
  * v0.74 Eliminate no-op sort.
+ * v0.75 Fix bug - crash when too many files to sort.
  */
 
 //#pragma debug 9
@@ -246,7 +247,7 @@ static const char err_forksz3[]  = "%s fork size %u is wrong, should be %u";
 static const char err_used2[]    = "Blks used %u is wrong, should be %u";
 static const char err_many[]     = "Too many files to sort";
 static const char err_count2[]   = "Filecount %u wrong, should be %u";
-static const char err_nosort[]   = "Errors ... will not sort";
+static const char err_nosort[]   = "Not sorting due to errors";
 #ifdef FREELIST
 static const char err_rdfl[]     = "Can't read free list";
 static const char err_blfree1[]  = "In use blk %u is marked free";
@@ -1932,7 +1933,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.74 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.75 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
@@ -2052,8 +2053,9 @@ void processdir(uint device, uint blocknum) {
 	uchar i, errs;
 	flushall();
 	errs = readdir(device, blocknum);
-	if ((strlen(fixopts) == 0) && errs) {
+	if (errs != 0) {
 		err(NONFATAL, err_nosort);
+		putchar('\n');
 		goto done;
 	}
 #ifdef SORT
