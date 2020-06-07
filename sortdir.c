@@ -3,6 +3,9 @@
  *
  * Bobbi January-June 2020
  *
+ * TODO: Fix bug - blocks used count is incorrect.
+ * TODO: Fix bug - when 'too many files' should skip dir and continue.
+ *       Right now it tries to sort, then hangs.
  * TODO: zeroblock() is NO-OP at present
  * TODO: Need code to write out modified freelist if there are fixes
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
@@ -33,6 +36,7 @@
  * v0.71 Added support for allocating aux LC memory.
  * v0.72 Initial support for freelist and usedlist in aux mem. (Slow!)
  * v0.73 Speedup to checkfreeandused();
+ * v0.74 Eliminate no-op sort.
  */
 
 //#pragma debug 9
@@ -317,7 +321,6 @@ int  cmp_blocks_asc(const void *a, const void *b);
 int  cmp_blocks_desc(const void *a, const void *b);
 int  cmp_eof_asc(const void *a, const void *b);
 int  cmp_eof_desc(const void *a, const void *b);
-int  cmp_noop(const void *a, const void *b);
 void sortlist(char s);
 #endif
 void printlist(void);
@@ -1689,15 +1692,6 @@ int  cmp_eof_desc(const void *a, const void *b) {
 }
 
 /*
- * No-op sort which just keeps items in the same order
- */
-int  cmp_noop(const void *a, const void *b) {
-	struct fileent *aa = (struct fileent*)a;
-	struct fileent *bb = (struct fileent*)b;
-	return aa->order - bb->order;
-}
-
-/*
  * Sort filelist[]
  * s defines the field to sort on
  */
@@ -1774,10 +1768,6 @@ void sortlist(char s) {
 	case 'E':
 		qsort(filelist, numfiles, sizeof(struct fileent),
 		      cmp_eof_desc);
-		break;
-	case '.':
-		qsort(filelist, numfiles, sizeof(struct fileent),
-		      cmp_noop);
 		break;
 	default:
 		err(FATALBADARG, err_invopt, "sort");
@@ -1942,7 +1932,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.73 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.74 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
@@ -2384,10 +2374,6 @@ int main() {
 	interactive();
 
 #endif
-
-	if (((strlen(caseopts) > 0) || (strlen(fixopts) > 0) ||
-	     (strlen(dateopts) > 0)) && (strlen(sortopts) == 0))
-		strncpy(sortopts, ".", 1);
 
 #ifdef CMDLINE
 	firstblk(((argc == 1) ? buf : argv[optind]), &dev, &blk);
