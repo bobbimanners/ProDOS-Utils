@@ -3,8 +3,6 @@
  *
  * Bobbi January-June 2020
  *
- * TODO: Fix bug - if too many files in a directory the blocks of the remaining
- *       files are not marked as used.
  * TODO: Need code to write out modified freelist if there are fixes
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  * TODO: Trimming unused directory blocks
@@ -38,6 +36,7 @@
  * v0.75 Fix bug - crash when too many files to sort.
  * v0.76 Fix bug - checkfreeandused() not traversing all freelist.
  * v0.77 Implemented zeroblock() for ProDOS-8.
+ * v0.78 Improved error handling when too many files to sort.
  */
 
 //#pragma debug 9
@@ -307,22 +306,22 @@ int  subdirblocks(uchar device, uint keyblk, struct pd_dirent *ent,
 void enqueuesubdir(uint blocknum, uint subdiridx);
 int  readdir(uint device, uint blocknum);
 #ifdef SORT
-void buildsorttable(char s, uchar callidx);
-int  cmp_name_asc(const void *a, const void *b);
-int  cmp_name_desc(const void *a, const void *b);
-int  cmp_name_asc_ci(const void *a, const void *b);
-int  cmp_name_desc_ci(const void *a, const void *b);
-int  cmp_datetime_asc(const void *a, const void *b);
-int  cmp_datetime_desc(const void *a, const void *b);
-int  cmp_type_asc(const void *a, const void *b);
-int  cmp_type_desc(const void *a, const void *b);
-int  cmp_dir_beg(const void *a, const void *b);
-int  cmp_dir_end(const void *a, const void *b);
-int  cmp_blocks_asc(const void *a, const void *b);
-int  cmp_blocks_desc(const void *a, const void *b);
-int  cmp_eof_asc(const void *a, const void *b);
-int  cmp_eof_desc(const void *a, const void *b);
-void sortlist(char s);
+uchar buildsorttable(char s, uchar callidx);
+int   cmp_name_asc(const void *a, const void *b);
+int   cmp_name_desc(const void *a, const void *b);
+int   cmp_name_asc_ci(const void *a, const void *b);
+int   cmp_name_desc_ci(const void *a, const void *b);
+int   cmp_datetime_asc(const void *a, const void *b);
+int   cmp_datetime_desc(const void *a, const void *b);
+int   cmp_type_asc(const void *a, const void *b);
+int   cmp_type_desc(const void *a, const void *b);
+int   cmp_dir_beg(const void *a, const void *b);
+int   cmp_dir_end(const void *a, const void *b);
+int   cmp_blocks_asc(const void *a, const void *b);
+int   cmp_blocks_desc(const void *a, const void *b);
+int   cmp_eof_asc(const void *a, const void *b);
+int   cmp_eof_desc(const void *a, const void *b);
+void  sortlist(char s);
 #endif
 void printlist(void);
 uint blockidxtoblocknum(uint idx);
@@ -1214,7 +1213,7 @@ int readdir(uint device, uint blocknum) {
 #endif
 	if (readdiskblock(device, blocknum, dirblkbuf) == -1) {
 		err(NONFATAL, err_rdblk1, blocknum);
-		return 1;
+		goto done;
 	}
 
 	hdr = (struct pd_dirhdr*)(dirblkbuf + PTRSZ);
@@ -1234,11 +1233,11 @@ int readdir(uint device, uint blocknum) {
 #ifdef CHECK
 	if (entsz != ENTSZ) {
 		err(NONFATAL, err_entsz2, entsz, ENTSZ);
-		return 1;
+		goto done;
 	}
 	if (entperblk != ENTPERBLK) {
 		err(NONFATAL, err_entblk2, entperblk, ENTPERBLK);
-		return 1;
+		goto done;
 	}
 #endif
 	idx = entsz + PTRSZ; /* Skip header */
@@ -1394,10 +1393,10 @@ int readdir(uint device, uint blocknum) {
 			}
 #endif
 			++numfiles;
-			if (numfiles == maxfiles) {
-				err(NONFATAL, err_many);
-				return 1;
-			}
+//			if (numfiles == maxfiles) {
+//				err(NONFATAL, err_many);
+//				return 1; // TODO
+//			}
 			if (errcount == errsbeforeent) {
 				for (i = 0; i < 53 - strlen(namebuf); ++i)
 					putchar(' ');
@@ -1437,7 +1436,7 @@ int readdir(uint device, uint blocknum) {
 #endif
 			if (readdiskblock(device, blocknum, dirblkbuf) == -1) {
 				err(NONFATAL, err_rdblk1, blocknum);
-				return 1;
+				goto done;
 			}
 
 			blkentries = 1;
@@ -1460,6 +1459,7 @@ int readdir(uint device, uint blocknum) {
 	memcpy(curblk->data, dirblkbuf, BLKSZ);
 #endif
 
+done:
 	return errcount - errsbefore;
 }
 
@@ -1470,8 +1470,9 @@ int readdir(uint device, uint blocknum) {
  * s - character representing the sorting mode
  * callidx - if 0, the routine populates the table, otherwise it updates
  *           and existing table
+ * Returns 1 on error, 0 if OK.
  */
-void buildsorttable(char s, uchar callidx) {
+uchar buildsorttable(char s, uchar callidx) {
 	static char namebuf[NMLEN+1];
 	uint off;
 	uchar entry, i;
@@ -1489,6 +1490,7 @@ void buildsorttable(char s, uchar callidx) {
 		memcpy(dirblkbuf, b->data, BLKSZ);
 #endif
 		for (entry = firstent; entry <= ENTPERBLK; ++entry) {
+
 			off = PTRSZ + (entry - 1) * entsz;
 			ent = (struct pd_dirent*)(dirblkbuf + off);
 
@@ -1534,7 +1536,10 @@ void buildsorttable(char s, uchar callidx) {
 			        		dt.year, dt.month, dt.day, dt.hour, dt.minute);
 					break;
 				}
-				++idx;
+				if (++idx == maxfiles) {
+					err(NONFATAL, err_many);
+					return 1;
+				}
 			}
 		}
 		b = b->next;
@@ -1543,6 +1548,8 @@ void buildsorttable(char s, uchar callidx) {
 	}
 	if (callidx == 0)
 		numfiles = idx;
+
+	return 0;
 }
 
 /*
@@ -1933,7 +1940,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.77 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.78 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
@@ -2052,8 +2059,7 @@ q6:
 void processdir(uint device, uint blocknum) {
 	uchar i, errs;
 	flushall();
-	errs = readdir(device, blocknum);
-	if (errs != 0) {
+	if (readdir(device, blocknum) != 0) {
 		err(NONFATAL, err_nosort);
 		putchar('\n');
 		goto done;
@@ -2065,7 +2071,11 @@ void processdir(uint device, uint blocknum) {
 		for (i = 0; i < strlen(sortopts); ++i) {
 			if (doverbose)
 				printf("[%c] ", sortopts[i]);
-			buildsorttable(sortopts[i], i);
+			if (buildsorttable(sortopts[i], i) != 0) {
+				err(NONFATAL, err_nosort);
+				putchar('\n');
+				goto done;
+			}
 			sortlist(sortopts[i]);
 		}
 		if (doverbose)
