@@ -5,7 +5,6 @@
  *
  * TODO: Fix bug - if too many files in a directory the blocks of the remaining
  *       files are not marked as used.
- * TODO: zeroblock() is NO-OP at present
  * TODO: Need code to write out modified freelist if there are fixes
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  * TODO: Trimming unused directory blocks
@@ -38,6 +37,7 @@
  * v0.74 Eliminate no-op sort.
  * v0.75 Fix bug - crash when too many files to sort.
  * v0.76 Fix bug - checkfreeandused() not traversing all freelist.
+ * v0.77 Implemented zeroblock() for ProDOS-8.
  */
 
 //#pragma debug 9
@@ -1933,7 +1933,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.76 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.77 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
@@ -2143,6 +2143,8 @@ void checkfreeandused(uchar device) {
  */
 void zeroblock(uchar device, uint blocknum) {
 	bzero(buf, BLKSZ);
+	if (writediskblock(device, blocknum, buf) == -1)
+		err(FATAL, err_wtblk1, blocknum);
 //	DIORecGS dr;
 //	dr.pCount = 6;
 //	dr.devNum = device;
