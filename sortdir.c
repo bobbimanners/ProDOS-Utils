@@ -3,7 +3,6 @@
  *
  * Bobbi January-June 2020
  *
- * TODO: Fix bug - blocks used count is incorrect.
  * TODO: Fix bug - if too many files in a directory the blocks of the remaining
  *       files are not marked as used.
  * TODO: zeroblock() is NO-OP at present
@@ -38,6 +37,7 @@
  * v0.73 Speedup to checkfreeandused();
  * v0.74 Eliminate no-op sort.
  * v0.75 Fix bug - crash when too many files to sort.
+ * v0.76 Fix bug - checkfreeandused() not traversing all freelist.
  */
 
 //#pragma debug 9
@@ -1933,7 +1933,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.75 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.76 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
@@ -2099,7 +2099,7 @@ void checkfreeandused(uchar device) {
 	uchar fl, ul, bit;
 	uint byte, blk = 1, blkcnt = 0;
 	printf("Total blks %u", totblks);
-	for (byte = 0; byte < flsize * 256; ++byte) {
+	for (byte = 0; byte < flsize * BLKSZ; ++byte) {
 #ifdef AUXMEM
 		copyaux(freelist + byte, &fl, 1, FROMAUX);
 		copyaux(usedlist + byte, &ul, 1, FROMAUX);
@@ -2108,7 +2108,7 @@ void checkfreeandused(uchar device) {
 		ul = usedlist[byte];
 #endif
 		for (bit = 0; bit < 8; ++bit) {
-			if (blk > totblks)
+			if ((blk > totblks) || (blk == 0))
 				break;
 			if ((fl << bit) & 0x80) {
 				/* Free */
