@@ -11,6 +11,7 @@ a directory tree or an entire volume:
   - Multi-level directory sort
   - Manipulating the case of filenames *
   - Manipulating the format of time and date information *
+  - Zeroing free blocks
 
 *Sortdir* is intended to help users migrate to the new ProDOS 2.5 release,
 which is currently in alpha.  The code has been testing with ProDOS 2.5a8,
@@ -343,6 +344,8 @@ time format back to the legacy format.
 
 ### Zeroing Free Blocks
 
-Not yet implemented in ProDOS-8 version.
+If requested *Sortdir* will zero free blocks on disk.  This is helpful in order
+to make disk images compress better with ZIP or similar tools and also to
+securely erase files.
 
 
