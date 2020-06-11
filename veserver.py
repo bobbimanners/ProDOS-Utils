@@ -121,15 +121,20 @@ def write(sock, addr, drive, d):
        file = FILE2
 
     cs = 0
+    for i in range (0, BLKSZ):
+         cs ^= d[i+5]
+
     err = False
-    try:
-        with open(file, 'r+b') as f:
-            f.seek(b)
-            for i in range (0, BLKSZ):
-                f.write(bytes([d[i+5]]))
-                cs ^= d[i+5]
-    except:
-        err = True
+    if cs == d[517]:
+        try:
+            with open(file, 'r+b') as f:
+                f.seek(b)
+                for i in range (0, BLKSZ):
+                    f.write(bytes([d[i+5]]))
+        except:
+            err = True         # Write error
+    else:
+        err == True            # Bad checksum
 
     # Signal write errors by responding with bad data checksum.
     # Use sender's checksum + 1, so there is never an inadvertent match.
@@ -148,7 +153,7 @@ def write(sock, addr, drive, d):
     #print('Sent {} bytes to {}'.format(b, addr))
 
 
-print("VEServer v0.6 alpha")
+print("VEServer v0.7 alpha")
 if pd25:
     print("ProDOS 2.5+ Clock Driver")
 else:
