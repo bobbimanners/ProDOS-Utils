@@ -18,13 +18,14 @@ FILE1 = "virtual-1.po"
 FILE2 = "virtual-2.po"
 BLKSZ = 512
 
+# vt100 colour codes for pretty printing
 GRN = '\033[92m'
 RED = '\033[91m'
 ENDC = '\033[0m'
 
 pd25 = True   # Set to True for ProDOS 2.5+ clock driver, False otherwise
 
-packet = 1
+packet = 1    # Sent packet counter
 
 #
 # Get date/time bytes
@@ -59,6 +60,24 @@ def appendbyte(l, b, csin):
 def read3(sock, addr, drive, d):
     global packet
     global pd25
+
+    blknum = d[2] + 256 * d[3]
+    print('{0}{1:05d}{2} '.format(GRN, blknum, ENDC), end='', flush=True)
+    b = blknum * BLKSZ
+
+    if d[1] == 0x03:
+       file = FILE1
+    else:
+       file = FILE2
+
+    err = False
+    try:
+        with open(file, 'rb') as f:
+            f.seek(b)
+            block = f.read(BLKSZ)
+    except:
+        err = True
+
     dt = getDateTimeBytes(pd25)
     l = []
     appendbyte(l, packet & 0xff, 0)  # Packet number
@@ -71,25 +90,17 @@ def read3(sock, addr, drive, d):
     cs = appendbyte(l, dt[1], cs) # Time of day MSB
     cs = appendbyte(l, dt[2], cs) # Date LSB
     cs = appendbyte(l, dt[3], cs) # Date MSB
-    appendbyte(l, cs, cs)         # Checksum
-
-    blknum = d[2] + 256 * d[3]
-    print('{0}{1:05d}{2} '.format(GRN, blknum, ENDC), end='', flush=True)
-    b = blknum * BLKSZ
-
-    if d[1] == 0x03:
-       file = FILE1
-    else:
-       file = FILE2
-
-    with open(file, 'rb') as f:
-        f.seek(b)
-        block = f.read(BLKSZ)
+    appendbyte(l, cs, cs)         # Checksum for header
 
     cs = 0
     for i in range (0, BLKSZ):
         cs = appendbyte(l, block[i], cs)
-    appendbyte(l, cs, cs)
+
+    # Signal read errors by responding with incorrect checksum
+    if err:
+        cs += 1
+
+    appendbyte(l, cs, cs)         # Checksum for datablock
 
     b = sock.sendto(bytearray(l), addr)
     #print('Sent {} bytes to {}'.format(b, addr))
@@ -99,14 +110,6 @@ def read3(sock, addr, drive, d):
 #
 def write(sock, addr, drive, d):
     global packet
-    l = []
-    appendbyte(l, packet & 0xff, 0)  # Packet number
-    packet += 1
-    cs = appendbyte(l, 0xc5, 0)   # "E"
-    cs = appendbyte(l, d[1], cs)  # 0x02 or 0x04
-    cs = appendbyte(l, d[2], cs)  # Block num LSB
-    cs = appendbyte(l, d[3], cs)  # Block num MSB
-    cs = appendbyte(l, d[517], cs)  # Block num MSB
 
     blknum = d[2] + 256 * d[3]
     print('{0}{1:05d}{2} '.format(RED, blknum, ENDC), end='', flush=True)
@@ -117,16 +120,35 @@ def write(sock, addr, drive, d):
     else:
        file = FILE2
 
-    with open(file, 'r+b') as f:
-        f.seek(b)
-        for i in range (0, BLKSZ):
-            f.write(bytes([d[i+5]]))
+    cs = 0
+    err = False
+    try:
+        with open(file, 'r+b') as f:
+            f.seek(b)
+            for i in range (0, BLKSZ):
+                f.write(bytes([d[i+5]]))
+                cs ^= d[i+5]
+    except:
+        err = True
 
+    # Signal write errors by responding with bad data checksum.
+    # Use sender's checksum + 1, so there is never an inadvertent match.
+    if err:
+        cs = d[517] + 1
+
+    l = []
+    appendbyte(l, packet & 0xff, 0)  # Packet number
+    packet += 1
+    appendbyte(l, 0xc5, 0)     # "E"
+    appendbyte(l, d[1], 0)     # 0x02 or 0x04
+    appendbyte(l, d[2], 0)     # Block num LSB
+    appendbyte(l, d[3], 0)     # Block num MSB
+    appendbyte(l, cs, 0)       # Checksum of datablock
     b = sock.sendto(bytearray(l), addr)
     #print('Sent {} bytes to {}'.format(b, addr))
 
 
-print("VEServer v0.5 alpha")
+print("VEServer v0.6 alpha")
 if pd25:
     print("ProDOS 2.5+ Clock Driver")
 else:
