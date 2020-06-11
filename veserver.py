@@ -10,6 +10,7 @@
 #
 
 import socket
+import time
 
 IP = "::"
 PORT = 6502
@@ -17,10 +18,37 @@ FILE1 = "virtual-1.po"
 FILE2 = "virtual-2.po"
 BLKSZ = 512
 
+GRN = '\033[92m'
+RED = '\033[91m'
+ENDC = '\033[0m'
+
+pd25 = True   # Set to True for ProDOS 2.5+ clock driver, False otherwise
+
 packet = 1
 
-# Append byte b to list l
-# Return updated checksum
+#
+# Get date/time bytes
+#
+def getDateTimeBytes(pd25):
+    t = time.localtime()
+    dt = []
+    if pd25:
+        # ProDOS 2.5+
+        word1 = 2048 * t.tm_mday + 64 * t.tm_hour + t.tm_min
+        word2 = 4096 * (t.tm_mon + 1) + t.tm_year
+    else:
+        # Legacy ProDOS <2.5
+        word1 = t.tm_mday + 32 * t.tm_mon + 512 * (t.tm_year - 2000)
+        word2 = t.tm_min + 256 * t.tm_hour
+    dt.append(word1 & 0xff)
+    dt.append((word1 & 0xff00) >> 8)
+    dt.append(word2 & 0xff)
+    dt.append((word2 & 0xff00) >> 8)
+    return dt
+
+#
+# Append byte b to list l, return updated checksum
+#
 def appendbyte(l, b, csin):
     l.append(b)
     return csin ^ b
@@ -30,6 +58,8 @@ def appendbyte(l, b, csin):
 #
 def read3(sock, addr, drive, d):
     global packet
+    global pd25
+    dt = getDateTimeBytes(pd25)
     l = []
     appendbyte(l, packet & 0xff, 0)  # Packet number
     packet += 1
@@ -37,19 +67,21 @@ def read3(sock, addr, drive, d):
     cs = appendbyte(l, d[1], cs)  # 0x03 or 0x05
     cs = appendbyte(l, d[2], cs)  # Block num LSB
     cs = appendbyte(l, d[3], cs)  # Block num MSB
-    cs = appendbyte(l, 0, cs)     # TODO: Date/time
-    cs = appendbyte(l, 0, cs)     # TODO: Date/time
-    cs = appendbyte(l, 0, cs)     # TODO: Date/time
-    cs = appendbyte(l, 0, cs)     # TODO: Date/time
+    cs = appendbyte(l, dt[0], cs) # Time of day LSB
+    cs = appendbyte(l, dt[1], cs) # Time of day MSB
+    cs = appendbyte(l, dt[2], cs) # Date LSB
+    cs = appendbyte(l, dt[3], cs) # Date MSB
     appendbyte(l, cs, cs)         # Checksum
 
     blknum = d[2] + 256 * d[3]
-    print('R{0:05d} '.format(blknum), end='', flush=True)
+    print('{0}{1:05d}{2} '.format(GRN, blknum, ENDC), end='', flush=True)
     b = blknum * BLKSZ
+
     if d[1] == 0x03:
        file = FILE1
     else:
        file = FILE2
+
     with open(file, 'rb') as f:
         f.seek(b)
         block = f.read(BLKSZ)
@@ -77,13 +109,14 @@ def write(sock, addr, drive, d):
     cs = appendbyte(l, d[517], cs)  # Block num MSB
 
     blknum = d[2] + 256 * d[3]
-    print('W{0:05d} '.format(blknum), end='', flush=True)
+    print('{0}{1:05d}{2} '.format(RED, blknum, ENDC), end='', flush=True)
     b = blknum * BLKSZ
 
     if d[1] == 0x02:
        file = FILE1
     else:
        file = FILE2
+
     with open(file, 'r+b') as f:
         f.seek(b)
         for i in range (0, BLKSZ):
@@ -93,9 +126,16 @@ def write(sock, addr, drive, d):
     #print('Sent {} bytes to {}'.format(b, addr))
 
 
+print("VEServer v0.5 alpha")
+if pd25:
+    print("ProDOS 2.5+ Clock Driver")
+else:
+    print("Legacy ProDOS Clock Driver")
+
 with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as s:
     s.bind((IP, PORT))
-    print("veserver - listening on UDP port ", PORT)
+    print("veserver - listening on UDP port {}".format(PORT))
+
     while True:
         data, address = s.recvfrom(1024)
         #print('Received {} bytes from {}'.format(len(data), address))
