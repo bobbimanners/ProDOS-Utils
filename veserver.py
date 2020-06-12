@@ -19,13 +19,23 @@ FILE2 = "virtual-2.po"
 BLKSZ = 512
 
 # vt100 colour codes for pretty printing
-GRN = '\033[92m'
+BLK = '\033[90m'
 RED = '\033[91m'
+GRN = '\033[92m'
+YEL = '\033[93m'
+BLU = '\033[94m'
+MAG = '\033[95m'
+CYN = '\033[96m'
+WHT = '\033[97m'
 ENDC = '\033[0m'
 
 pd25 = True   # Set to True for ProDOS 2.5+ clock driver, False otherwise
 
-packet = 1    # Sent packet counter
+packet = 1     # Sent packet counter
+prevblk = -1   # Last block read/written
+prevdrv = -1   # Last drive read/written
+prevop = -1    # Last operation (read or write)
+prevcs = -1    # Previous checksum
 
 #
 # Get date/time bytes
@@ -54,25 +64,42 @@ def appendbyte(l, b, csin):
     l.append(b)
     return csin ^ b
 
+
+#
+# Pretty print info about each request
+#
+def printinfo(drv, blknum, isWrite, isError, cs):
+    global prevblk, prevdrv, prevop, prevcs
+    if drv != prevdrv:
+       print('\n{}Drive {}{}'.format(BLU, drv, ENDC))
+    e = '+' if ((blknum == prevblk) and (drv == prevdrv) and (isWrite == prevop) and (cs == prevcs)) else ' '
+    e = 'X' if isError else e
+    c = RED if isWrite else GRN
+    print('{0} {1}{2:05d}{3}'.format(c, e, blknum, ENDC), end='', flush=True)
+    prevblk = blknum
+    prevdrv = drv
+    prevop = isWrite
+    prevcs = cs
+
 #
 # Read block with date/time update
 #
-def read3(sock, addr, drive, d):
-    global packet
-    global pd25
-
-    blknum = d[2] + 256 * d[3]
-    print('{0}{1:05d}{2} '.format(GRN, blknum, ENDC), end='', flush=True)
-    b = blknum * BLKSZ
+def read3(sock, addr, d):
+    global packet, pd25
 
     if d[1] == 0x03:
        file = FILE1
+       drv = 1
     else:
        file = FILE2
+       drv = 2
+
+    blknum = d[2] + 256 * d[3]
 
     err = False
     try:
         with open(file, 'rb') as f:
+            b = blknum * BLKSZ
             f.seek(b)
             block = f.read(BLKSZ)
     except:
@@ -102,32 +129,35 @@ def read3(sock, addr, drive, d):
 
     appendbyte(l, cs, cs)         # Checksum for datablock
 
+    printinfo(drv, blknum, False, err, cs)
+
     b = sock.sendto(bytearray(l), addr)
     #print('Sent {} bytes to {}'.format(b, addr))
 
 #
 # Write block
 #
-def write(sock, addr, drive, d):
+def write(sock, addr, d):
     global packet
-
-    blknum = d[2] + 256 * d[3]
-    print('{0}{1:05d}{2} '.format(RED, blknum, ENDC), end='', flush=True)
-    b = blknum * BLKSZ
 
     if d[1] == 0x02:
        file = FILE1
+       drv = 1
     else:
        file = FILE2
+       drv = 2
 
     cs = 0
     for i in range (0, BLKSZ):
          cs ^= d[i+5]
 
+    blknum = d[2] + 256 * d[3]
+
     err = False
     if cs == d[517]:
         try:
             with open(file, 'r+b') as f:
+                b = blknum * BLKSZ
                 f.seek(b)
                 for i in range (0, BLKSZ):
                     f.write(bytes([d[i+5]]))
@@ -149,11 +179,14 @@ def write(sock, addr, drive, d):
     appendbyte(l, d[2], 0)     # Block num LSB
     appendbyte(l, d[3], 0)     # Block num MSB
     appendbyte(l, cs, 0)       # Checksum of datablock
+
+    printinfo(drv, blknum, True, err, cs)
+
     b = sock.sendto(bytearray(l), addr)
     #print('Sent {} bytes to {}'.format(b, addr))
 
 
-print("VEServer v0.7 alpha")
+print("VEServer v0.8 alpha")
 if pd25:
     print("ProDOS 2.5+ Clock Driver")
 else:
@@ -167,12 +200,8 @@ with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as s:
         data, address = s.recvfrom(1024)
         #print('Received {} bytes from {}'.format(len(data), address))
         if (data[0] == 0xc5):
-            if (data[1] == 0x03):
-                read3(s, address, 1, data)
-            elif (data[1] == 0x05):
-                read3(s, address, 2, data)
-            elif (data[1] == 0x02):
-                write(s, address, 1, data)
-            elif (data[1] == 0x04):
-                write(s, address, 2, data)
+            if (data[1] == 0x03) or (data[1] == 0x05):
+                read3(s, address, data)
+            elif (data[1] == 0x02) or (data[1] == 0x04):
+                write(s, address, data)
 
