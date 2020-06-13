@@ -3,7 +3,8 @@
 ## Purpose
 
 VEServer is a very simple virtual disk server for an Apple II equipped with
-a compatible ethernet card (such as the Uthernet II.)  It is intented to be
+a compatible ethernet card (such as the Uthernet II.)  VEServer can run on
+Linux, Mac or Windows, provided Python v3 is installed.  It is intended to be
 used with the Apple II client program `VEDRIVE.SYSTEM` which is included as
 part of the [ADTPro](https://github.com/ADTPro/adtpro) disk imaging program.
 
