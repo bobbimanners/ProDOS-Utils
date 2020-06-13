@@ -1,0 +1,6 @@
+[Unit]
+Description=Virtual Ethernet Drive Server for Apple II
+
+[Service]
+Type=simple
+ExecStart=/home/pi/veserver.py --prodos25

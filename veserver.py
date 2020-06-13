@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
 
-#
-# Bobbi 2020
+###########################################################################
+# Bobbi June 2020
 #
 # Alternative server for ADTPro's VEDRIVE.SYSTEM
 # Virtual Ethernet Drive for Apple II / ProDOS
 #
 # See https://www.adtpro.com/protocolv1.html
 #
+###########################################################################
+
+pd25 = False   # Default to old-style date/time --prodos25 to use new format
+file1 = "/home/pi/virtual-1.po"  # Disk image drive 1 --disk1 to override
+file2 = "/home/pi/virtual-2.po"  # Disk image drive 2 --disk2 to override
+
+###########################################################################
 
 import socket
 import time
+import os
+import getopt
+import sys
 
 IP = "::"
 PORT = 6502
-FILE1 = "virtual-1.po"
-FILE2 = "virtual-2.po"
 BLKSZ = 512
 
 # vt100 colour codes for pretty printing
@@ -29,18 +37,20 @@ CYN = '\033[96m'
 WHT = '\033[97m'
 ENDC = '\033[0m'
 
-pd25 = True   # Set to True for ProDOS 2.5+ clock driver, False otherwise
-
-packet = 1     # Sent packet counter
-prevblk = -1   # Last block read/written
-prevdrv = -1   # Last drive read/written
-prevop = -1    # Last operation (read or write)
-prevcs = -1    # Previous checksum
+# Globals
+systemd = False # True if running under Systemd
+packet = 1      # Sent packet counter
+prevblk = -1    # Last block read/written
+prevdrv = -1    # Last drive read/written
+prevop = -1     # Last operation (read or write)
+prevcs = -1     # Previous checksum
+col = 0         # Used to control logging printout
 
 #
 # Get date/time bytes
 #
-def getDateTimeBytes(pd25):
+def getDateTimeBytes():
+    global pd25
     t = time.localtime()
     dt = []
     if pd25:
@@ -69,13 +79,22 @@ def appendbyte(l, b, csin):
 # Pretty print info about each request
 #
 def printinfo(drv, blknum, isWrite, isError, cs):
-    global prevblk, prevdrv, prevop, prevcs
+    global systemd, prevblk, prevdrv, prevop, prevcs, col
     if drv != prevdrv:
        print('\n{}Drive {}{}'.format(BLU, drv, ENDC))
+       col = 0
     e = '+' if ((blknum == prevblk) and (drv == prevdrv) and (isWrite == prevop) and (cs == prevcs)) else ' '
     e = 'X' if isError else e
-    c = RED if isWrite else GRN
-    print('{0} {1}{2:05d}{3}'.format(c, e, blknum, ENDC), end='', flush=True)
+    if systemd:
+        c = 'W' if isWrite else 'R'
+        print(' {0}{1}{2:05d}{3}'.format(e, c, blknum, ENDC), end='', flush=True)
+    else:
+        c = RED if isWrite else GRN
+        print('{0} {1}{2:05d}{3}'.format(c, e, blknum, ENDC), end='', flush=True)
+    col += 1
+    if col == 8:
+        print('')
+        col = 0
     prevblk = blknum
     prevdrv = drv
     prevop = isWrite
@@ -85,13 +104,13 @@ def printinfo(drv, blknum, isWrite, isError, cs):
 # Read block with date/time update
 #
 def read3(sock, addr, d):
-    global packet, pd25
+    global packet
 
     if d[1] == 0x03:
-       file = FILE1
+       file = file1
        drv = 1
     else:
-       file = FILE2
+       file = file2
        drv = 2
 
     blknum = d[2] + 256 * d[3]
@@ -105,7 +124,7 @@ def read3(sock, addr, d):
     except:
         err = True
 
-    dt = getDateTimeBytes(pd25)
+    dt = getDateTimeBytes()
     l = []
     appendbyte(l, packet & 0xff, 0)  # Packet number
     packet += 1
@@ -119,13 +138,14 @@ def read3(sock, addr, d):
     cs = appendbyte(l, dt[3], cs) # Date MSB
     appendbyte(l, cs, cs)         # Checksum for header
 
-    cs = 0
-    for i in range (0, BLKSZ):
-        cs = appendbyte(l, block[i], cs)
-
     # Signal read errors by responding with incorrect checksum
     if err:
         cs += 1
+    else:
+        cs = 0
+        for i in range (0, BLKSZ):
+            cs = appendbyte(l, block[i], cs)
+
 
     appendbyte(l, cs, cs)         # Checksum for datablock
 
@@ -141,10 +161,10 @@ def write(sock, addr, d):
     global packet
 
     if d[1] == 0x02:
-       file = FILE1
+       file = file1
        drv = 1
     else:
-       file = FILE2
+       file = file2
        drv = 2
 
     cs = 0
@@ -186,11 +206,49 @@ def write(sock, addr, d):
     #print('Sent {} bytes to {}'.format(b, addr))
 
 
-print("VEServer v0.8 alpha")
+def usage():
+    print('usage: veserver [OPTION]...')
+    print('  -h, --help      Show this help');
+    print('  -p, --prodos25  Use ProDOS 2.5 date/time format');
+    print('  -1, --disk1  ');
+    print('  -2, --disk2  ');
+
+#
+# Entry point
+#
+
+# Check whether we are running under Systemd or not
+if 'INVOCATION_ID' in os.environ:
+    systemd = True
+
+short_opts = "hp1:2:"
+long_opts = ["help", "prodos25", "disk1", "disk2"]
+try:
+    args, vals = getopt.getopt(sys.argv[1:], short_opts, long_opts)
+except getopt.error as e:
+    print (str(e))
+    usage()
+    sys.exit(2)
+
+for a, v in args:
+    if a in ('-h', '--help'):
+        usage()
+        sys.exit(0)
+    elif a in ('-p', '--prodos25'):
+        pd25 = True
+    elif a in ('-1', '--disk1'):
+        file1 = v
+    elif a in ('-2', '--disk2'):
+        file2 = v
+
+print("VEServer v0.9 alpha")
 if pd25:
     print("ProDOS 2.5+ Clock Driver")
 else:
     print("Legacy ProDOS Clock Driver")
+
+print("Disk 1: {}".format(file1))
+print("Disk 2: {}".format(file2))
 
 with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as s:
     s.bind((IP, PORT))
