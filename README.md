@@ -1,7 +1,7 @@
 # ProDOS-Utils
 File management utilities for the ProDOS operating system on the Apple II
 
-  - [Sortdir](README-sortdir.md)
-  - [VEServer](README-veserver.md)
-  - [Extend](README-extend.md)
+  - [Sortdir](https://github.com/bobbimanners/ProDOS-Utils/blob/master/README-sortdir.po)
+  - [VEServer](https://github.com/bobbimanners/ProDOS-Utils/blob/master/README-veserver.po)
+  - [Extend](https://github.com/bobbimanners/ProDOS-Utils/blob/master/README-extend.po)
 
