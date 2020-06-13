@@ -208,10 +208,10 @@ def write(sock, addr, d):
 
 def usage():
     print('usage: veserver [OPTION]...')
-    print('  -h, --help      Show this help');
-    print('  -p, --prodos25  Use ProDOS 2.5 date/time format');
-    print('  -1, --disk1  ');
-    print('  -2, --disk2  ');
+    print('  -h, --help               Show this help');
+    print('  -p, --prodos25           Use ProDOS 2.5 date/time format');
+    print('  -1 FNAME, --disk1=FNAME  Specify filename for disk 1 image');
+    print('  -2 FNAME, --disk2=FNAME  Specify filename for disk 2 image');
 
 #
 # Entry point
@@ -222,7 +222,7 @@ if 'INVOCATION_ID' in os.environ:
     systemd = True
 
 short_opts = "hp1:2:"
-long_opts = ["help", "prodos25", "disk1", "disk2"]
+long_opts = ["help", "prodos25", "disk1=", "disk2="]
 try:
     args, vals = getopt.getopt(sys.argv[1:], short_opts, long_opts)
 except getopt.error as e:
