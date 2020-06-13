@@ -7,7 +7,7 @@ a compatible ethernet card (such as the Uthernet II.)  It is intented to be
 used with the Apple II client program `VEDRIVE.SYSTEM` which is included as
 part of the [ADTPro](https://github.com/ADTPro/adtpro) disk imaging program.
 
-The `VEDRIVE.SYSTEM` program is designed to communicate with the ADTPro
+ADTPro's `VEDRIVE.SYSTEM` program is designed to communicate with the ADTPro
 server, which is a multi-platform Java program.  VEServer can be used in
 place of the ADTPro server for this purpose.  VEServer is a much smaller and
 simpler program, so it is easier to modify and better suited to being run as
@@ -43,13 +43,13 @@ There are only a few options:
 ## Running in a Shell
 
 You can just run `veserver.py` directly, for example
-`./veserver.py --prodos25 --disk1=/home/woz/hd32_1.po --disk2=/home/woz/hd32_2.po`.
+`./veserver.py --prodos25 -1 /home/woz/hd32_1.po -2 /home/woz/hd32_2.po`.
 
 When run in a shell, each block number read or written is logged, and vt100
 escape codes are used to colourize the output.  Reads are shown in green and
 writes in red.  If a block number is prefixed by a `+` symbol this indicates
 that VEServer believes this is a duplicate request, which is usually caused by
-UDP packet loss.  If a block number is shown prefixed by 'X', this indicates
+UDP packet loss.  If a block number is shown prefixed by `X`, this indicates
 a checksum failure (not seen in normal operation.)
 
 ## Running as a System Service using Systemd
