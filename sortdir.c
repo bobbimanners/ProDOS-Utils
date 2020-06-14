@@ -4,8 +4,6 @@
  * Bobbi January-June 2020
  *
  * TODO: *** When trimming dirs fix EOF in directory header ***
- * TODO: Trimming unused directory blocks
- * TODO: Don't trim volume directory to <4 blocks
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  *
  * Revision History
@@ -39,7 +37,8 @@
  * v0.77 Implemented zeroblock() for ProDOS-8.
  * v0.78 Improved error handling when too many files to sort.
  * v0.79 Trim unused directory blocks after sorting. Write freelist to disk.
- * v0.80 Reinstated no-op sort (useful for compacting dir without reordering)
+ * v0.80 Reinstated no-op sort (useful for compacting dir without reordering).
+ * v0.81 Do not trim volume directory to <4 blocks.
  */
 
 //#pragma debug 9
@@ -67,7 +66,7 @@
 #define SORT        /* Enable sorting code */
 #define FREELIST    /* Checking of free list */
 #define AUXMEM      /* Auxiliary memory support on //e and up */
-#undef CMDLINE      /* Command line option parsing */
+#undef  CMDLINE     /* Command line option parsing */
 #undef TRIMDIR      /* Enable trimming of directory blocks */
 
 #define NLEVELS 4	/* Number of nested sorts permitted */
@@ -1906,8 +1905,13 @@ uchar writedir(uchar device) {
 			}
 #ifdef TRIMDIR
 		} else {
-			puts("Trimming dir blk");
-			trimdirblock(b->blocknum);
+			/* Standard volume directory is blocks 2-5 (4 blocks)
+			 * We will not trim volume directory to less than 4 blocks
+			 */
+			if (b->blocknum > 5) {
+				puts("Trimming dir blk");
+				trimdirblock(b->blocknum);
+			}
 		}
 #else
 		}
@@ -1974,7 +1978,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.80 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.81 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
