@@ -3,6 +3,7 @@
  *
  * Bobbi January-June 2020
  *
+ * TODO: Maybe no-op sort is useful after all?
  * TODO: Need code to write out modified freelist if there are fixes
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  * TODO: Trimming unused directory blocks
@@ -1393,10 +1394,6 @@ int readdir(uint device, uint blocknum) {
 			}
 #endif
 			++numfiles;
-//			if (numfiles == maxfiles) {
-//				err(NONFATAL, err_many);
-//				return 1; // TODO
-//			}
 			if (errcount == errsbeforeent) {
 				for (i = 0; i < 53 - strlen(namebuf); ++i)
 					putchar(' ');
