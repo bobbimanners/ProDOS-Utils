@@ -68,7 +68,7 @@
 #define FREELIST    /* Checking of free list */
 #define AUXMEM      /* Auxiliary memory support on //e and up */
 #undef CMDLINE      /* Command line option parsing */
-#define TRIMDIR     /* Enable trimming of directory blocks */
+#undef TRIMDIR      /* Enable trimming of directory blocks */
 
 #define NLEVELS 4	/* Number of nested sorts permitted */
 
