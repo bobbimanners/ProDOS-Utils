@@ -3,7 +3,9 @@
  *
  * Bobbi January-June 2020
  *
- * TODO: *** When trimming dirs fix EOF in directory header ***
+ * TODO: EOF length for directories
+ *        1) Check this in readir() if I am not doing so already
+ *        2) When trimming a directory, need to update EOF for parent entry
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  *
  * Revision History
@@ -39,6 +41,7 @@
  * v0.79 Trim unused directory blocks after sorting. Write freelist to disk.
  * v0.80 Reinstated no-op sort (useful for compacting dir without reordering).
  * v0.81 Do not trim volume directory to <4 blocks.
+ * v0.82 Minor fix to TRIMDIR conditional compilation.
  */
 
 //#pragma debug 9
@@ -1872,6 +1875,8 @@ uchar sortblock(uint device, uint dstblk) {
 	if (lastlistent > numfiles - 1) {
 
 		lastlistent = numfiles - 1;
+
+#ifdef TRIMDIR
 // TODO: Fix EOF for directory
 #ifdef AUXMEM
 		dirblkbuf[2] = dirblkbuf[3] = 0; /* Set next ptr to NULL */
@@ -1879,6 +1884,9 @@ uchar sortblock(uint device, uint dstblk) {
 		p->data[2] = p->data[3] = 0; /* Set next ptr to NULL */
 #endif
 		rc = 1;
+#else
+		rc = 0;
+#endif
 	}
 
 	for (i = firstlistent; i <= lastlistent; ++i) {
@@ -1903,7 +1911,6 @@ uchar writedir(uchar device) {
 				err(NONFATAL, err_wtblk1, b->blocknum);
 				return 1;
 			}
-#ifdef TRIMDIR
 		} else {
 			/* Standard volume directory is blocks 2-5 (4 blocks)
 			 * We will not trim volume directory to less than 4 blocks
@@ -1913,9 +1920,6 @@ uchar writedir(uchar device) {
 				trimdirblock(b->blocknum);
 			}
 		}
-#else
-		}
-#endif
 		b = b->next;
 	}
 	return 0;
@@ -1978,7 +1982,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.81 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.82 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
