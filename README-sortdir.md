@@ -139,6 +139,9 @@ The following prompts are presented in order:
     - `B` - Sort in descending order of file size in blocks.
     - `e` - Sort in ascending order of file size in bytes (ie: EOF position).
     - `E` - Sort in descending order of file size in bytes (ie: EOF position).
+    - `.` - Keeps the entries in the existing order. This sort option is
+            useful in order to compress any deleted entries in the directory
+            without changing the order of the active entries.
     - `-` - Entering `-` (minus) will end the entry of sort options and move
             on to the next section.
   - *Filename case conversion ...*
@@ -215,6 +218,7 @@ sortdir [-s xxx] [-n x] [-rDwvVh] path
       B  sort by blocks used descending
       e  sort by EOF position ascending
       E  sort by EOF position descending
+      .  keep entries in same order, just compress deleted entries
     
     -fx: Fix mode, where x is:
       ?  prompt for each fix
