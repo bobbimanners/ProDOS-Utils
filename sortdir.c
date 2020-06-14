@@ -3,10 +3,11 @@
  *
  * Bobbi January-June 2020
  *
- * TODO: Maybe no-op sort is useful after all?
- * TODO: Need code to write out modified freelist if there are fixes
- * TODO: Get both ProDOS-8 and GNO versions to build from this source
  * TODO: Trimming unused directory blocks
+ * TODO: Don't trim volume directory to <4 blocks
+ * TODO: *** When trimming dirs fix EOF in directory header ***
+ * TODO: no-op sort is useful after all - reinstate it
+ * TODO: Get both ProDOS-8 and GNO versions to build from this source
  *
  * Revision History
  * v0.50 Initial alpha release on GitHub. Ported from GNO/ME version.
@@ -38,6 +39,7 @@
  * v0.76 Fix bug - checkfreeandused() not traversing all freelist.
  * v0.77 Implemented zeroblock() for ProDOS-8.
  * v0.78 Improved error handling when too many files to sort.
+ * v0.79 Trim unused directory blocks after sorting. Write freelist to disk.
  */
 
 //#pragma debug 9
@@ -133,9 +135,9 @@ struct pd_dirent {
  */
 struct block {
 #ifdef AUXMEM
-	char *data;               /* Original contents of block */
+	char *data;               /* Contents of block (pointer to auxmem) */
 #else
-	char data[BLKSZ];         /* Original contents of block */
+	char data[BLKSZ];         /* Contents of block */
 #endif
 	uint blocknum;            /* Block number on disk */
 	struct block *next;
@@ -198,6 +200,7 @@ static uchar *freelist;                  /* Free-list bitmap */
 static uchar *usedlist;                  /* Bit map of used blocks */
 static uchar flloaded = 0;               /* 1 if free-list has been loaded */
 static uint flsize;                      /* Size of free-list in blocks */
+static uint flblk;                       /* Block num for start of freelist */
 #endif
 static char currdir[NMLEN+1];            /* Name of current directory */
 static struct block *blocks = NULL;      /* List of directory disk blocks */
@@ -291,9 +294,8 @@ uint askfix(void);
 int  readfreelist(uchar device);
 int  isfree(uint blk);
 int  isused(uint blk);
-void markfree(uint blk);
-void marknotfree(uint blk);
 void markused(uint blk);
+void marknotused(uint blk);
 void checkblock(uint blk, char *msg);
 #endif
 #ifdef CHECK
@@ -324,24 +326,25 @@ int   cmp_eof_asc(const void *a, const void *b);
 int   cmp_eof_desc(const void *a, const void *b);
 void  sortlist(char s);
 #endif
-void printlist(void);
-uint blockidxtoblocknum(uint idx);
-void copydirblkptrs(uint blkidx);
-void copydirent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device);
-void sortblock(uint device, uint dstblk);
-int  writedir(uchar device);
-void freeblocks(void);
-void subtitle(char *s);
-void interactive(void);
-void processdir(uint device, uint blocknum);
+void  printlist(void);
+uint  blockidxtoblocknum(uint idx);
+void  copydirblkptrs(uint blkidx);
+void  copydirent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device);
+uchar sortblock(uint device, uint dstblk);
+uchar writedir(uchar device);
+uchar writefreelist(uchar device);
+void  freeblocks(void);
+void  subtitle(char *s);
+void  interactive(void);
+void  processdir(uint device, uint blocknum);
 #ifdef FREELIST
-void checkfreeandused(uchar device);
-void zeroblock(uchar device, uint blocknum);
-void zerofreeblocks(uchar device, uint freeblks);
+void  checkfreeandused(uchar device);
+void  zeroblock(uchar device, uint blocknum);
+void  zerofreeblocks(uchar device, uint freeblks);
 #endif
 #ifdef CMDLINE
-void usage(void);
-void parseargs(void);
+void  usage(void);
+void  parseargs(void);
 #endif
 
 enum errtype {WARN, NONFATAL, FATAL, FATALALLOC, FATALBADARG, FINISHED};
@@ -782,15 +785,17 @@ void writedatetime(uchar pd25, struct datetime *dt, uchar time[4]) {
 uint askfix(void) {
 	if (strlen(fixopts) == 0)
 		return 0;
+	fputs(": Fix (y/n)? ", stdout);
 	switch (fixopts[0]) {
 	case '?':
-		fputs("Fix (y/n)? ", stdout);
 		if (tolower(getchar()) == 'y')
 			return 1;
 		return 0;
-	case 'y':
+	case 'a':
+		fputs("y", stdout);
 		return 1;
 	default:
+		fputs("n", stdout);
 		return 0;
 	}
 }
@@ -801,7 +806,7 @@ uint askfix(void) {
  * Read the free list
  */
 int readfreelist(uchar device) {
-	uint i, flblk;
+	uint i, f;
 	char *p;
 #ifdef AUXMEM
 	bzero(buf, BLKSZ);
@@ -819,7 +824,7 @@ int readfreelist(uchar device) {
 		err(NONFATAL, err_rdblk1, 2);
 		return -1;
 	}
-	flblk = buf[0x27] + 256U * buf[0x28];
+	flblk = f = buf[0x27] + 256U * buf[0x28];
 	totblks = buf[0x29] + 256U * buf[0x2a];
 	if (doverbose)
 		printf("Volume has %u blocks\n", totblks);
@@ -828,11 +833,11 @@ int readfreelist(uchar device) {
 		++flsize;
 	p = (char*)freelist;
 	for (i = 0; i < flsize; ++i) {
-		markused(flblk);
+		markused(f);
 #ifdef AUXMEM
-		if (readdiskblock(device, flblk++, buf) == -1) {
+		if (readdiskblock(device, f++, buf) == -1) {
 #else
-		if (readdiskblock(device, flblk++, p) == -1) {
+		if (readdiskblock(device, f++, p) == -1) {
 #endif
 			err(NONFATAL, err_rdfl);
 			return -1;
@@ -877,38 +882,6 @@ int isused(uint blk) {
 }
 
 /*
- * Mark a block as free
- */
-void markfree(uint blk) {
-	uchar temp;
-	uint idx = blk / 8;
-	uint bit = blk % 8;
-#ifdef AUXMEM
-	copyaux(freelist + idx, &temp, 1, FROMAUX);
-	temp |= (0x80 >> bit);
-	copyaux(&temp, freelist + idx, 1, TOAUX);
-#else
-	freelist[idx] |= (0x80 >> bit);
-#endif
-}
-
-/*
- * Mark a block as not free
- */
-void marknotfree(uint blk) {
-	uchar temp;
-	uint idx = blk / 8;
-	uint bit = blk % 8;
-#ifdef AUXMEM
-	copyaux(freelist + idx, &temp, 1, FROMAUX);
-	temp &= ~(0x80 >> bit);
-	copyaux(&temp, freelist + idx, 1, TOAUX);
-#else
-	freelist[idx] &= ~(0x80 >> bit);
-#endif
-}
-
-/*
  * Mark a block as used
  */
 void markused(uint blk) {
@@ -918,6 +891,22 @@ void markused(uint blk) {
 #ifdef AUXMEM
 	copyaux(usedlist + idx, &temp, 1, FROMAUX);
 	temp |= (0x80 >> bit);
+	copyaux(&temp, usedlist + idx, 1, TOAUX);
+#else
+	usedlist[idx] |= (0x80 >> bit);
+#endif
+}
+
+/*
+ * Mark a block as not used
+ */
+void marknotused(uint blk) {
+	uchar temp;
+	uint idx = blk / 8;
+	uint bit = blk % 8;
+#ifdef AUXMEM
+	copyaux(usedlist + idx, &temp, 1, FROMAUX);
+	temp &= ~(0x80 >> bit);
 	copyaux(&temp, usedlist + idx, 1, TOAUX);
 #else
 	usedlist[idx] |= (0x80 >> bit);
@@ -1860,10 +1849,11 @@ void copydirent(uint srcblk, uint srcent, uint dstblk, uint dstent, uint device)
 /*
  * Build sorted directory block dstblk (1,2,3...) using the sorted list in
  * filelist[]. Note that the block and entry numbers are 1-based indices.
+ * Returns 1 if last block of directory, 0 otherwise.
  */
-void sortblock(uint device, uint dstblk) {
+uchar sortblock(uint device, uint dstblk) {
 	uint i, firstlistent, lastlistent;
-	uchar destentry;
+	uchar destentry, rc = 0;
 	copydirblkptrs(dstblk);
 	if (dstblk == 1) {
 		copydirent(1, 1, 1, 1, device); /* Copy directory header */
@@ -1875,28 +1865,67 @@ void sortblock(uint device, uint dstblk) {
 		firstlistent = (dstblk - 1) * entperblk - 1;
 		lastlistent = firstlistent + entperblk - 1;
 	}
-	if (lastlistent > numfiles - 1)
+
+	if (lastlistent > numfiles - 1) {
+
 		lastlistent = numfiles - 1;
+// TODO: Fix EOF for directory
+#ifdef AUXMEM
+		dirblkbuf[2] = dirblkbuf[3] = 0; /* Set next ptr to NULL */
+#else
+		p->data[2] = p->data[3] = 0; /* Set next ptr to NULL */
+#endif
+		rc = 1;
+	}
+
 	for (i = firstlistent; i <= lastlistent; ++i) {
 		copydirent(filelist[i].blockidx, filelist[i].entrynum,
 		           dstblk, destentry++, device);
 	}
+	return rc;
 }
 
 /*
  * Build each sorted directory block in turn, then write them
  * out to disk.
  */
-int writedir(uchar device) {
+uchar writedir(uchar device) {
 	uint dstblk = 1;
+	uchar finished = 0;
 	struct block *b = blocks;
 	while (b) {
-		sortblock(device, dstblk++);
-		if (writediskblock(device, b->blocknum, dirblkbuf) == -1) {
-			err(NONFATAL, err_wtblk1, b->blocknum);
-			return 1;
+		if (!finished) {
+			finished = sortblock(device, dstblk++);
+			if (writediskblock(device, b->blocknum, dirblkbuf) == -1) {
+				err(NONFATAL, err_wtblk1, b->blocknum);
+				return 1;
+			}
+		} else {
+			puts("Trimming dir blk");
+			marknotused(b->blocknum);
 		}
 		b = b->next;
+	}
+	return 0;
+}
+
+/*
+ * Write the freelist back to disk.
+ */
+uchar writefreelist(uchar device) {
+	uchar b;
+	puts("Writing freelist ...");
+	for (b = 0; b < flsize; ++b) {
+#ifdef AUXMEM
+		copyaux(freelist + b * BLKSZ, dirblkbuf, BLKSZ, FROMAUX);
+#else
+		memcpy(dirblkbuf, freelist + b * BLKSZ, BLKSZ);
+#endif
+		if (writediskblock(device, flblk, dirblkbuf) == -1) {
+			err(NONFATAL, err_wtblk1, flblk);
+			return 1;
+		}
+		++flblk;
 	}
 	return 0;
 }
@@ -1937,7 +1966,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.78 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.79 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
@@ -2104,7 +2133,7 @@ done:
  */
 void checkfreeandused(uchar device) {
 	uchar fl, ul, bit;
-	uint byte, blk = 1, blkcnt = 0;
+	uint byte, blk = 0, blkcnt = 0;
 	printf("Total blks %u", totblks);
 	for (byte = 0; byte < flsize * BLKSZ; ++byte) {
 #ifdef AUXMEM
@@ -2115,15 +2144,22 @@ void checkfreeandused(uchar device) {
 		ul = usedlist[byte];
 #endif
 		for (bit = 0; bit < 8; ++bit) {
-			if ((blk > totblks) || (blk == 0))
+			if (blk >= totblks)
 				break;
 			if ((fl << bit) & 0x80) {
 				/* Free */
 				if ((ul << bit) & 0x80) {
 					/* ... and used */
 					err(NONFATAL, err_blfree1, blk);
-					if (askfix() == 1)
-						marknotfree(blk);
+					if (askfix() == 1) {
+						++blkcnt;
+						fl &= ~(0x80 >> bit);
+#ifdef AUXMEM
+						copyaux(&fl, freelist + byte, 1, TOAUX);
+#else
+						freelist[byte] = fl;
+#endif
+					}
 				}
 			} else {
 				/* Not free */
@@ -2131,16 +2167,22 @@ void checkfreeandused(uchar device) {
 				if (!((ul << bit) & 0x80)) {
 					/* ... and not used */
 					err(NONFATAL, err_blused1, blk);
-					if (askfix() == 1)
-						markfree(blk);
+					if (askfix() == 1) {
+						--blkcnt;
+						fl |= (0x80 >> bit);
+#ifdef AUXMEM
+						copyaux(&fl, freelist + byte, 1, TOAUX);
+#else
+						freelist[byte] = fl;
+#endif
+					}
 				}
 			}
 			++blk;
 		}
 	}
-	printf("\nFree blks  %u\n", totblks - blkcnt);
+	printf("\nFree blks %u\n", totblks - blkcnt);
 
-	// TODO: NEED SOME CODE TO WRITE OUT MODIFIED FREE LIST!!
 	if (dozero)
 		zerofreeblocks(device, totblks - blkcnt);
 }
@@ -2409,8 +2451,11 @@ int main() {
 		}
 	}
 #ifdef FREELIST
-	if (dowholedisk)
+	if (dowholedisk) {
 		checkfreeandused(dev);
+		if (dowrite)
+			writefreelist(dev);
+	}
 
 	free(freelist);
 	free(usedlist);
