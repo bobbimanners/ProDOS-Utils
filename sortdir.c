@@ -3,10 +3,9 @@
  *
  * Bobbi January-June 2020
  *
+ * TODO: *** When trimming dirs fix EOF in directory header ***
  * TODO: Trimming unused directory blocks
  * TODO: Don't trim volume directory to <4 blocks
- * TODO: *** When trimming dirs fix EOF in directory header ***
- * TODO: no-op sort is useful after all - reinstate it
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  *
  * Revision History
@@ -40,6 +39,7 @@
  * v0.77 Implemented zeroblock() for ProDOS-8.
  * v0.78 Improved error handling when too many files to sort.
  * v0.79 Trim unused directory blocks after sorting. Write freelist to disk.
+ * v0.80 Reinstated no-op sort (useful for compacting dir without reordering)
  */
 
 //#pragma debug 9
@@ -68,6 +68,7 @@
 #define FREELIST    /* Checking of free list */
 #define AUXMEM      /* Auxiliary memory support on //e and up */
 #undef CMDLINE      /* Command line option parsing */
+#define TRIMDIR     /* Enable trimming of directory blocks */
 
 #define NLEVELS 4	/* Number of nested sorts permitted */
 
@@ -295,7 +296,7 @@ int  readfreelist(uchar device);
 int  isfree(uint blk);
 int  isused(uint blk);
 void markused(uint blk);
-void marknotused(uint blk);
+void trimdirblock(uint blk);
 void checkblock(uint blk, char *msg);
 #endif
 #ifdef CHECK
@@ -324,6 +325,7 @@ int   cmp_blocks_asc(const void *a, const void *b);
 int   cmp_blocks_desc(const void *a, const void *b);
 int   cmp_eof_asc(const void *a, const void *b);
 int   cmp_eof_desc(const void *a, const void *b);
+int   cmp_noop(const void *a, const void *b);
 void  sortlist(char s);
 #endif
 void  printlist(void);
@@ -898,9 +900,9 @@ void markused(uint blk) {
 }
 
 /*
- * Mark a block as not used
+ * Mark a block as not used and add it to freelist
  */
-void marknotused(uint blk) {
+void trimdirblock(uint blk) {
 	uchar temp;
 	uint idx = blk / 8;
 	uint bit = blk % 8;
@@ -908,8 +910,12 @@ void marknotused(uint blk) {
 	copyaux(usedlist + idx, &temp, 1, FROMAUX);
 	temp &= ~(0x80 >> bit);
 	copyaux(&temp, usedlist + idx, 1, TOAUX);
+	copyaux(freelist + idx, &temp, 1, FROMAUX);
+	temp |= (0x80 >> bit);
+	copyaux(&temp, freelist + idx, 1, TOAUX);
 #else
-	usedlist[idx] |= (0x80 >> bit);
+	usedlist[idx] &= ~(0x80 >> bit);
+	freelist[idx] |= (0x80 >> bit);
 #endif
 }
 
@@ -1638,7 +1644,7 @@ int cmp_dir_end(const void *a, const void *b) {
 /*
  * Compare - sort in increasing order of blocks used
  */
-int  cmp_blocks_asc(const void *a, const void *b) {
+int cmp_blocks_asc(const void *a, const void *b) {
 	struct fileent *aa = (struct fileent*)a;
 	struct fileent *bb = (struct fileent*)b;
 	int rc = aa->blocks - bb->blocks;
@@ -1648,7 +1654,7 @@ int  cmp_blocks_asc(const void *a, const void *b) {
 /*
  * Compare - sort in decreasing order of blocks used
  */
-int  cmp_blocks_desc(const void *a, const void *b) {
+int cmp_blocks_desc(const void *a, const void *b) {
 	struct fileent *aa = (struct fileent*)a;
 	struct fileent *bb = (struct fileent*)b;
 	int rc = bb->blocks - aa->blocks;
@@ -1658,7 +1664,7 @@ int  cmp_blocks_desc(const void *a, const void *b) {
 /*
  * Compare - sort in increasing order of EOF position
  */
-int  cmp_eof_asc(const void *a, const void *b) {
+int cmp_eof_asc(const void *a, const void *b) {
 	struct fileent *aa = (struct fileent*)a;
 	struct fileent *bb = (struct fileent*)b;
 	long diff = aa->eof - bb->eof;
@@ -1673,7 +1679,7 @@ int  cmp_eof_asc(const void *a, const void *b) {
 /*
  * Compare - sort in decreasing order of EOF position
  */
-int  cmp_eof_desc(const void *a, const void *b) {
+int cmp_eof_desc(const void *a, const void *b) {
 	struct fileent *aa = (struct fileent*)a;
 	struct fileent *bb = (struct fileent*)b;
 	long diff = bb->eof - aa->eof;
@@ -1683,6 +1689,15 @@ int  cmp_eof_desc(const void *a, const void *b) {
 		return 1;
 	else
 		return -1;
+}
+
+/*
+ * Compare - no-op compare which leaves order unchanged
+ */
+int cmp_noop(const void *a, const void *b) {
+	struct fileent *aa = (struct fileent*)a;
+	struct fileent *bb = (struct fileent*)b;
+	return aa->order - bb->order;
 }
 
 /*
@@ -1706,62 +1721,51 @@ void sortlist(char s) {
 
 	switch (s) {
 	case 'n':
-		qsort(filelist, numfiles, sizeof(struct fileent),
-		      cmp_name_asc);
+		qsort(filelist, numfiles, sizeof(struct fileent), cmp_name_asc);
 		break;
 	case 'N':
-		qsort(filelist, numfiles, sizeof(struct fileent),
-		      cmp_name_desc);
+		qsort(filelist, numfiles, sizeof(struct fileent), cmp_name_desc);
 		break;
 	case 'i':
-		qsort(filelist, numfiles, sizeof(struct fileent),
-		      cmp_name_asc_ci);
+		qsort(filelist, numfiles, sizeof(struct fileent), cmp_name_asc_ci);
 		break;
 	case 'I':
-		qsort(filelist, numfiles, sizeof(struct fileent),
-		      cmp_name_desc_ci);
+		qsort(filelist, numfiles, sizeof(struct fileent), cmp_name_desc_ci);
 		break;
 	case 'c':
 	case 'm':
-		qsort(filelist, numfiles, sizeof(struct fileent),
-		      cmp_datetime_asc);
+		qsort(filelist, numfiles, sizeof(struct fileent), cmp_datetime_asc);
 		break;
 	case 'C':
 	case 'M':
-		qsort(filelist, numfiles, sizeof(struct fileent),
-		      cmp_datetime_desc);
+		qsort(filelist, numfiles, sizeof(struct fileent), cmp_datetime_desc);
 		break;
 	case 't':
-		qsort(filelist, numfiles, sizeof(struct fileent),
-		      cmp_type_asc);
+		qsort(filelist, numfiles, sizeof(struct fileent), cmp_type_asc);
 		break;
 	case 'T':
-		qsort(filelist, numfiles, sizeof(struct fileent),
-		      cmp_type_desc);
+		qsort(filelist, numfiles, sizeof(struct fileent), cmp_type_desc);
 		break;
 	case 'd':
-		qsort(filelist, numfiles, sizeof(struct fileent),
-		      cmp_dir_beg);
+		qsort(filelist, numfiles, sizeof(struct fileent), cmp_dir_beg);
 		break;
 	case 'D':
-		qsort(filelist, numfiles, sizeof(struct fileent),
-		      cmp_dir_end);
+		qsort(filelist, numfiles, sizeof(struct fileent), cmp_dir_end);
 		break;
 	case 'b':
-		qsort(filelist, numfiles, sizeof(struct fileent),
-		      cmp_blocks_asc);
+		qsort(filelist, numfiles, sizeof(struct fileent), cmp_blocks_asc);
 		break;
 	case 'B':
-		qsort(filelist, numfiles, sizeof(struct fileent),
-		      cmp_blocks_desc);
+		qsort(filelist, numfiles, sizeof(struct fileent), cmp_blocks_desc);
 		break;
 	case 'e':
-		qsort(filelist, numfiles, sizeof(struct fileent),
-		      cmp_eof_asc);
+		qsort(filelist, numfiles, sizeof(struct fileent), cmp_eof_asc);
 		break;
 	case 'E':
-		qsort(filelist, numfiles, sizeof(struct fileent),
-		      cmp_eof_desc);
+		qsort(filelist, numfiles, sizeof(struct fileent), cmp_eof_desc);
+		break;
+	case '.':
+		qsort(filelist, numfiles, sizeof(struct fileent), cmp_noop);
 		break;
 	default:
 		err(FATALBADARG, err_invopt, "sort");
@@ -1900,10 +1904,14 @@ uchar writedir(uchar device) {
 				err(NONFATAL, err_wtblk1, b->blocknum);
 				return 1;
 			}
+#ifdef TRIMDIR
 		} else {
 			puts("Trimming dir blk");
-			marknotused(b->blocknum);
+			trimdirblock(b->blocknum);
 		}
+#else
+		}
+#endif
 		b = b->next;
 	}
 	return 0;
@@ -1966,7 +1974,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.79 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.80 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
@@ -2003,12 +2011,12 @@ q3:
 	fputs("| Lower case option ascending order, upper case option descending order        |", stdout);
 	fputs("| [nN] Name      | [iI] Name (case-insens) | [tT] Type     | [dD] Directories  |", stdout);
 	fputs("| [cC] Creation  | [mM] Modification       | [bB] Blocks   | [eE] EOF Position |", stdout);
-	fputs("| [-]  Done      |                         |               |                   |", stdout);
+	fputs("| [-]  Done      | [.] Just compact dir    |               |                   |", stdout);
 	for (level = 0; level < NLEVELS; ++level) {
 		do {
 			printf("\nLevel %d > ", level+1);
 			sortopts[level] = getchar();
-		} while (strchr("-nNiItTdDcCmMbBeE^", sortopts[level]) == NULL);
+		} while (strchr("-.nNiItTdDcCmMbBeE^", sortopts[level]) == NULL);
 		if (sortopts[level] == '-') {
 			sortopts[level] = '\0';
 			break;
