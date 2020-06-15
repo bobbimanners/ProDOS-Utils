@@ -3,9 +3,11 @@
  *
  * Bobbi January-June 2020
  *
- * TODO: EOF length for directories
- *        1) Check this in readir() if I am not doing so already
+ * TODO: EOF validation / fix:
+ *        1) Check this in readir() taking account of sparse files
  *        2) When trimming a directory, need to update EOF for parent entry
+ * TODO: Print indication when a file is sparse
+ * TODO: Only write freelist if there were changes
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  *
  * Revision History
@@ -42,6 +44,7 @@
  * v0.80 Reinstated no-op sort (useful for compacting dir without reordering).
  * v0.81 Do not trim volume directory to <4 blocks.
  * v0.82 Minor fix to TRIMDIR conditional compilation.
+ * v0.83 Print additional info on each file.
  */
 
 //#pragma debug 9
@@ -183,6 +186,7 @@ struct datetime {
 	uchar hour;
 	uchar minute;
 	uchar ispd25format;
+	uchar nodatetime;
 };
 
 /*
@@ -249,6 +253,7 @@ static const char err_entsz2[]   = "Bad entry size %u, should be %u";
 static const char err_entblk2[]  = "Bad entries/blk %u, should be %u";
 static const char err_parblk3[]  = "Bad parent %s %u, should be %u";
 static const char err_hdrblk2[]  = "Bad hdr blk %u, should be %u";
+static const char err_access[]   = "Bad access";
 static const char err_forksz3[]  = "%s fork size %u is wrong, should be %u";
 static const char err_used2[]    = "Blks used %u is wrong, should be %u";
 static const char err_many[]     = "Too many files to sort";
@@ -291,7 +296,8 @@ void uppercase(char *p, uchar len, uchar *minvers, uchar *vers);
 void initialcase(uchar mode, char *p, uchar len, uchar *minvers, uchar *vers);
 void firstblk(char *dirname, uchar *device, uint *block);
 void readdatetime(uchar time[4], struct datetime *dt);
-void writedatetime(uchar pd25, struct datetime *dt, uchar time[4]);
+void writedatetime(struct datetime *dt, uchar time[4]);
+void printdatetime(struct datetime *dt);
 uint askfix(void);
 #ifdef FREELIST
 int  readfreelist(uchar device);
@@ -727,6 +733,11 @@ ret:
 void readdatetime(uchar time[4], struct datetime *dt) {
 	uint d = time[0] + 256U * time[1];
 	uint t = time[2] + 256U * time[3];
+	if ((d == 0) && (t == 0)) {
+		dt->nodatetime = 1;
+		return;
+	}
+	dt->nodatetime = 0;
 	if (!(t & 0xe000)) {
 		/* ProDOS 1.0 to 2.4.2 date format */
 		dt->year   = (d & 0xfe00) >> 9;
@@ -752,13 +763,17 @@ void readdatetime(uchar time[4], struct datetime *dt) {
 
 /*
  * Write the date and time stored in struct datetime in ProDOS on disk format,
- * storing the bytes in array time[].  If pd25 is 0 then use legacy format
- * (ProDOS 1.0-2.4.2) otherwise use the new date and time format introduced
+ * storing the bytes in array time[].  Supports both legacy format
+ * (ProDOS 1.0-2.4.2) and the new date and time format introduced
  * with ProDOS 2.5
  */
-void writedatetime(uchar pd25, struct datetime *dt, uchar time[4]) {
+void writedatetime(struct datetime *dt, uchar time[4]) {
 	uint d, t;
-	if (pd25 == 0) {
+	if (dt->nodatetime == 1) {
+		time[0] = time[1] = time[2] = time[3] = 0;
+		return;
+	}
+	if (dt->ispd25format == 0) {
 		/* ProDOS 1.0 to 2.4.2 date format */
 		uint year = dt->year;
 		if (year > 2039)		/* 2039 is last year */
@@ -780,6 +795,18 @@ void writedatetime(uchar pd25, struct datetime *dt, uchar time[4]) {
 	time[1] = (d >> 8) & 0xff;
 	time[2] = t & 0xff;
 	time[3] = (t >> 8) & 0xff;
+}
+
+/*
+ * Print date/time value for directory listing
+ */
+void printdatetime(struct datetime *dt) {
+	if (dt->nodatetime)
+		fputs(" -------- --:-- ", stderr);
+	else
+		printf(" %02d%02d%02d %02d:%02d%c",
+		       dt->year, dt->month, dt->day, dt->hour, dt->minute,
+		       dt->ispd25format ? '*' : ' ');
 }
 
 /*
@@ -1186,9 +1213,10 @@ int readdir(uint device, uint blocknum) {
 	static char namebuf[NMLEN+1];
 	struct pd_dirhdr *hdr;
 	struct block *curblk;
+	struct datetime dt;
 	ulong eof;
-	uint filecount, idx, subdirs, blks, keyblk, hdrblk, count, entries;
-	uchar blkentries, pd25, i;
+	uint filecount, idx, subdirs, blks, keyblk, hdrblk, count, entries, auxtype;
+	uchar blkentries, i;
 	uint errsbefore = errcount;
 	uint blkcnt = 1;
 	uint hdrblknum = blocknum;
@@ -1227,6 +1255,7 @@ int readdir(uint device, uint blocknum) {
 	printf("Directory %s (%u", currdir, filecount);
 	printf(" %s)\n", filecount == 1 ? "entry" : "entries");
 	hline();
+	puts("  Name             Blk      EOF Typ Aux Perm  Modified        Created         OK");
 
 #ifdef CHECK
 	if (entsz != ENTSZ) {
@@ -1288,16 +1317,18 @@ int readdir(uint device, uint blocknum) {
 				readdatetime(ent->mtime, &mtime);
 				switch (dateopts[0]) {
 				case 'n':
-					pd25 = 1;
+					ctime.ispd25format = 1;
+					mtime.ispd25format = 1;
 					break;
 				case 'o':
-					pd25 = 0;
+					ctime.ispd25format = 0;
+					mtime.ispd25format = 0;
 					break;
 				default:
 					err(FATALBADARG, err_invopt, "date");
 				}
-				writedatetime(pd25, &ctime, ent->ctime);
-				writedatetime(pd25, &mtime, ent->mtime);
+				writedatetime(&ctime, ent->ctime);
+				writedatetime(&mtime, ent->mtime);
 			}
 
 			fixcase(ent->name, namebuf,
@@ -1305,35 +1336,55 @@ int readdir(uint device, uint blocknum) {
 
 			switch (ent->typ_len & 0xf0) {
 			case 0x10:
-				fputs("Seed  ", stdout);
+				fputs("s ", stdout);
 				break;
 			case 0x20:
-				fputs("Sapl  ", stdout);
+				fputs("S ", stdout);
 				break;
 			case 0x30:
-				fputs("Tree  ", stdout);
+				fputs("T ", stdout);
 				break;
 			case 0x40:
-				fputs("Pasc  ", stdout);
+				fputs("P ", stdout);
 				break;
 			case 0x50:
-				fputs("Fork  ", stdout);
+				fputs("F ", stdout);
 				break;
 			case 0xd0:
-				fputs("Dir   ", stdout);
+				fputs("D ", stdout);
 				break;
 			default:
-				fputs("????  ", stdout);
+				fputs("? ", stdout);
 				break;
 			}
 			fputs(namebuf, stdout);
+			for (i = 0; i < 16 - strlen(namebuf); ++i)
+				putchar(' ');
 
 			blks = ent->blksused[0] + 256U * ent->blksused[1];
 			eof = ent->eof[0] + 256L * ent->eof[1] + 65536L * ent->eof[2];
+			auxtype = ent->auxtype[0] + 256L * ent->auxtype[1];
+			printf("%4d %8ld %02x %04x %c%c%c%c%c",
+			       blks, eof, ent->type,auxtype,
+			       (ent->access & 0x80) ? 'D' : '-',
+			       (ent->access & 0x40) ? 'R' : '-',
+			       (ent->access & 0x20) ? 'B' : '-',
+			       (ent->access & 0x02) ? 'w' : '-',
+			       (ent->access & 0x01) ? 'r' : '-');
+
+			readdatetime(ent->ctime, &dt);
+			printdatetime(&dt);
+			readdatetime(ent->mtime, &dt);
+			printdatetime(&dt);
 
 			keyblk = ent->keyptr[0] + 256U * ent->keyptr[1];
 			hdrblk = ent->hdrptr[0] + 256U * ent->hdrptr[1];
 #ifdef CHECK
+			if (ent->access & 0x1c) {
+				err(NONFATAL, err_access);
+				if (askfix() == 1)
+					ent->access &= 0xe3;
+			}
 			if (hdrblk != hdrblknum) {
 				err(NONFATAL, err_hdrblk2, hdrblk, hdrblknum);
 				if (askfix() == 1) {
@@ -1392,12 +1443,10 @@ int readdir(uint device, uint blocknum) {
 #endif
 			++numfiles;
 			if (errcount == errsbeforeent) {
-				for (i = 0; i < 53 - strlen(namebuf); ++i)
-					putchar(' ');
 #ifdef CHECK
-				printf("%5u blocks   [ OK ]", blks);
+				puts(" *");
 #else
-				printf("%5u blocks\n", blks);
+				putchar('\n');
 #endif
 			} else
 				putchar('\n');
@@ -1982,7 +2031,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.82 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.83 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
