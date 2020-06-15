@@ -7,7 +7,6 @@
  *        1) Check this in readir() taking account of sparse files
  *        2) When trimming a directory, need to update EOF for parent entry
  * TODO: Print indication when a file is sparse
- * TODO: Only write freelist if there were changes
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  *
  * Revision History
@@ -46,6 +45,7 @@
  * v0.82 Minor fix to TRIMDIR conditional compilation.
  * v0.83 Print additional info on each file.
  * v0.84 Minor fixup for builds without CHECK and FREELIST defined.
+ * v0.85 Only write free list if it has been changed.
  */
 
 //#pragma debug 9
@@ -207,6 +207,7 @@ static uint totblks;                     /* Total # blocks on volume */
 static uchar *freelist;                  /* Free-list bitmap */
 static uchar *usedlist;                  /* Bit map of used blocks */
 static uchar flloaded = 0;               /* 1 if free-list has been loaded */
+static uchar flchanged = 0;              /* 1 if free-list has been changed */
 static uint flsize;                      /* Size of free-list in blocks */
 static uint flblk;                       /* Block num for start of freelist */
 #endif
@@ -951,6 +952,7 @@ void trimdirblock(uint blk) {
 	usedlist[idx] &= ~(0x80 >> bit);
 	freelist[idx] |= (0x80 >> bit);
 #endif
+	flchanged = 1;
 }
 
 /*
@@ -2047,7 +2049,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.84 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.85 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
@@ -2240,6 +2242,7 @@ void checkfreeandused(uchar device) {
 #else
 						freelist[byte] = fl;
 #endif
+						flchanged = 1;
 					}
 				}
 			} else {
@@ -2256,6 +2259,7 @@ void checkfreeandused(uchar device) {
 #else
 						freelist[byte] = fl;
 #endif
+						flchanged = 1;
 					}
 				}
 			}
@@ -2538,7 +2542,7 @@ int main() {
 #ifdef FREELIST
 	if (dowholedisk) {
 		checkfreeandused(dev);
-		if (dowrite)
+		if (dowrite && flchanged)
 			writefreelist(dev);
 	}
 
