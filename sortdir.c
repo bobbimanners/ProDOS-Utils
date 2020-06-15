@@ -45,6 +45,7 @@
  * v0.81 Do not trim volume directory to <4 blocks.
  * v0.82 Minor fix to TRIMDIR conditional compilation.
  * v0.83 Print additional info on each file.
+ * v0.84 Minor fixup for builds without CHECK and FREELIST defined.
  */
 
 //#pragma debug 9
@@ -244,10 +245,13 @@ static const char err_rdblk1[]   = "Can't read blk %u";
 static const char err_rdblk2[]   = "Can't read blk %u ($%2x)";
 static const char err_wtblk1[]   = "Can't write blk %u";
 static const char err_wtblk2[]   = "Can't write blk %u ($%2x)";
+#ifdef CHECK
 static const char err_stype2[]   = "Bad storage type $%2x for %s";
+#endif
 static const char err_odir1[]    = "Can't open dir %s";
 static const char err_rddir1[]   = "Can't read dir %s";
 static const char err_rdpar[]    = "Can't read parent dir";
+#ifdef CHECK
 static const char err_sdname[]   = "Bad subdir name";
 static const char err_entsz2[]   = "Bad entry size %u, should be %u";
 static const char err_entblk2[]  = "Bad entries/blk %u, should be %u";
@@ -256,6 +260,7 @@ static const char err_hdrblk2[]  = "Bad hdr blk %u, should be %u";
 static const char err_access[]   = "Bad access";
 static const char err_forksz3[]  = "%s fork size %u is wrong, should be %u";
 static const char err_used2[]    = "Blks used %u is wrong, should be %u";
+#endif
 static const char err_many[]     = "Too many files to sort";
 static const char err_count2[]   = "Filecount %u wrong, should be %u";
 static const char err_nosort[]   = "Not sorting due to errors";
@@ -1215,7 +1220,10 @@ int readdir(uint device, uint blocknum) {
 	struct block *curblk;
 	struct datetime dt;
 	ulong eof;
-	uint filecount, idx, subdirs, blks, keyblk, hdrblk, count, entries, auxtype;
+	uint filecount, idx, subdirs, blks, keyblk, hdrblk, entries, auxtype;
+#ifdef CHECK
+	uint count;
+#endif
 	uchar blkentries, i;
 	uint errsbefore = errcount;
 	uint blkcnt = 1;
@@ -1960,6 +1968,7 @@ uchar writedir(uchar device) {
 				err(NONFATAL, err_wtblk1, b->blocknum);
 				return 1;
 			}
+#ifdef FREELIST
 		} else {
 			/* Standard volume directory is blocks 2-5 (4 blocks)
 			 * We will not trim volume directory to less than 4 blocks
@@ -1969,10 +1978,15 @@ uchar writedir(uchar device) {
 				trimdirblock(b->blocknum);
 			}
 		}
+#else
+		}
+#endif
 		b = b->next;
 	}
 	return 0;
 }
+
+#ifdef FREELIST
 
 /*
  * Write the freelist back to disk.
@@ -1994,6 +2008,8 @@ uchar writefreelist(uchar device) {
 	}
 	return 0;
 }
+
+#endif
 
 /*
  * Walk through the linked list freeing memory
@@ -2031,7 +2047,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.83 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.84 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
@@ -2406,6 +2422,8 @@ int main() {
 	_heapadd((void*)0x0800, 0x1800);
 	//printf("\nHeap: %u %u\n", _heapmemavail(), _heapmaxavail());
 
+#ifdef FREELIST
+
 #ifdef AUXMEM
 	freelist = (uchar*)auxalloc(FLSZ);
 #else
@@ -2420,6 +2438,8 @@ int main() {
 #endif
 	if (!usedlist)
 		err(FATALALLOC, err_nomem);
+
+#endif
 
 #ifdef AUXMEM
 	lockaux(); // Protect free list and used list
