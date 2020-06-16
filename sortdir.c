@@ -7,7 +7,6 @@
  *        1) Check this in readir() taking account of sparse files
  *        2) When trimming a directory, need to update EOF for parent entry
  * TODO: Print indication when a file is sparse - blocks in inverse video?
- * TODO: Change fix options so '-' is ask, other two options are 'y', 'n'
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  *
  * Revision History
@@ -48,6 +47,7 @@
  * v0.84 Minor fixup for builds without CHECK and FREELIST defined.
  * v0.85 Only write free list if it has been changed.
  * v0.86 Show 'invisible' access bit.
+ * v0.87 Change the fix options so '-' is ask, 'y'/'n' are always/never.
  */
 
 //#pragma debug 9
@@ -826,11 +826,11 @@ uint askfix(void) {
 		return 0;
 	fputs(": Fix (y/n)? ", stdout);
 	switch (fixopts[0]) {
-	case '?':
+	case '-':
 		if (tolower(getchar()) == 'y')
 			return 1;
 		return 0;
-	case 'a':
+	case 'y':
 		fputs("y", stdout);
 		return 1;
 	default:
@@ -2053,7 +2053,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.86 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.87 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
@@ -2132,9 +2132,9 @@ q5:
 q6:	
 	subtitle("Attempt to fix errors?");
 	do {
-		fputs("| [-] Never fix  | [?] Ask before fixing   | [a] Always fix                    |", stderr); 
+		fputs("| [-] Always ask | [y] Always fix          | [n] Never fix                     |", stderr); 
 		f = getchar();
-	} while (strchr("-?a^", f) == NULL);
+	} while (strchr("-yn^", f) == NULL);
 	if (f == '^')
 		goto q5;
 	fixopts[0] = ((f == '-') ? 'n' : f);
@@ -2362,7 +2362,7 @@ void usage(void) {
 	printf("  E  sort by EOF position descending\n");
 	printf("\n");
 	printf("-fx: Fix mode, where x is:\n");
-	printf("  ?  prompt for each fix\n");
+	printf("  -  prompt for each fix\n");
 	printf("  n  never fix\n");
 	printf("  y  always fix (be careful!)\n");
 	printf("\n");
