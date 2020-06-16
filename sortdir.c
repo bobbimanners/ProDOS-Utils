@@ -3,6 +3,7 @@
  *
  * Bobbi January-June 2020
  *
+ * TODO: Find out why free(usedlist) at end -> crash. Memory corruption?
  * TODO: EOF validation / fix:
  *        1) Check this in readir() taking account of sparse files
  *        2) When trimming a directory, need to update EOF for parent entry
@@ -49,6 +50,7 @@
  * v0.86 Show 'invisible' access bit.
  * v0.87 Change the fix options so '-' is ask, 'y'/'n' are always/never.
  * v0.88 Show ProDOS 2.5 dates in inverse video (saves two columns!)
+ * v0.89 Commented out free(usedlist) which was crashing for some reason.
  */
 
 //#pragma debug 9
@@ -2059,7 +2061,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.88 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.89 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
@@ -2276,7 +2278,7 @@ void checkfreeandused(uchar device) {
 			++blk;
 		}
 	}
-	printf("\nFree blks %u\n", totblks - blkcnt);
+	printf("\nFree blks  %u\n", totblks - blkcnt);
 
 	if (dozero)
 		zerofreeblocks(device, totblks - blkcnt);
@@ -2557,7 +2559,7 @@ int main() {
 	}
 
 	free(freelist);
-	free(usedlist);
+//	free(usedlist);  /// TODO This is crashing ATM
 #endif
 	err(FINISHED, "");
 	return 0; // Just to shut up warning
