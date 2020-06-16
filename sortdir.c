@@ -6,7 +6,8 @@
  * TODO: EOF validation / fix:
  *        1) Check this in readir() taking account of sparse files
  *        2) When trimming a directory, need to update EOF for parent entry
- * TODO: Print indication when a file is sparse
+ * TODO: Print indication when a file is sparse - blocks in inverse video?
+ * TODO: Change fix options so '-' is ask, other two options are 'y', 'n'
  * TODO: Get both ProDOS-8 and GNO versions to build from this source
  *
  * Revision History
@@ -46,6 +47,7 @@
  * v0.83 Print additional info on each file.
  * v0.84 Minor fixup for builds without CHECK and FREELIST defined.
  * v0.85 Only write free list if it has been changed.
+ * v0.86 Show 'invisible' access bit.
  */
 
 //#pragma debug 9
@@ -808,9 +810,9 @@ void writedatetime(struct datetime *dt, uchar time[4]) {
  */
 void printdatetime(struct datetime *dt) {
 	if (dt->nodatetime)
-		fputs(" -------- --:-- ", stderr);
+		fputs("-------- --:-- ", stderr);
 	else
-		printf(" %02d%02d%02d %02d:%02d%c",
+		printf("%02d%02d%02d %02d:%02d%c",
 		       dt->year, dt->month, dt->day, dt->hour, dt->minute,
 		       dt->ispd25format ? '*' : ' ');
 }
@@ -1265,7 +1267,7 @@ int readdir(uint device, uint blocknum) {
 	printf("Directory %s (%u", currdir, filecount);
 	printf(" %s)\n", filecount == 1 ? "entry" : "entries");
 	hline();
-	puts("  Name             Blk      EOF Typ Aux Perm  Modified        Created         OK");
+	fputs("  Name             Blk      EOF Typ Aux Perm   Modified       Created         OK", stdout);
 
 #ifdef CHECK
 	if (entsz != ENTSZ) {
@@ -1374,15 +1376,17 @@ int readdir(uint device, uint blocknum) {
 			blks = ent->blksused[0] + 256U * ent->blksused[1];
 			eof = ent->eof[0] + 256L * ent->eof[1] + 65536L * ent->eof[2];
 			auxtype = ent->auxtype[0] + 256L * ent->auxtype[1];
-			printf("%4d %8ld %02x %04x %c%c%c%c%c",
+			printf("%4d %8ld %02x %04x %c%c%c%c%c%c",
 			       blks, eof, ent->type,auxtype,
 			       (ent->access & 0x80) ? 'D' : '-',
 			       (ent->access & 0x40) ? 'R' : '-',
 			       (ent->access & 0x20) ? 'B' : '-',
+			       (ent->access & 0x04) ? 'I' : '-',
 			       (ent->access & 0x02) ? 'w' : '-',
 			       (ent->access & 0x01) ? 'r' : '-');
 
 			readdatetime(ent->ctime, &dt);
+			putchar(' ');
 			printdatetime(&dt);
 			readdatetime(ent->mtime, &dt);
 			printdatetime(&dt);
@@ -1390,10 +1394,10 @@ int readdir(uint device, uint blocknum) {
 			keyblk = ent->keyptr[0] + 256U * ent->keyptr[1];
 			hdrblk = ent->hdrptr[0] + 256U * ent->hdrptr[1];
 #ifdef CHECK
-			if (ent->access & 0x1c) {
+			if (ent->access & 0x18) {
 				err(NONFATAL, err_access);
 				if (askfix() == 1)
-					ent->access &= 0xe3;
+					ent->access &= 0xe7;
 			}
 			if (hdrblk != hdrblknum) {
 				err(NONFATAL, err_hdrblk2, hdrblk, hdrblknum);
@@ -2049,7 +2053,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.85 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.86 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
