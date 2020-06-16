@@ -48,6 +48,7 @@
  * v0.85 Only write free list if it has been changed.
  * v0.86 Show 'invisible' access bit.
  * v0.87 Change the fix options so '-' is ask, 'y'/'n' are always/never.
+ * v0.88 Show ProDOS 2.5 dates in inverse video (saves two columns!)
  */
 
 //#pragma debug 9
@@ -810,11 +811,14 @@ void writedatetime(struct datetime *dt, uchar time[4]) {
  */
 void printdatetime(struct datetime *dt) {
 	if (dt->nodatetime)
-		fputs("-------- --:-- ", stderr);
-	else
-		printf("%02d%02d%02d %02d:%02d%c",
-		       dt->year, dt->month, dt->day, dt->hour, dt->minute,
-		       dt->ispd25format ? '*' : ' ');
+		fputs("-------- --:--", stderr);
+	else {
+		if (dt->ispd25format)
+			revers(1);
+		printf("%02d%02d%02d %02d:%02d",
+		       dt->year, dt->month, dt->day, dt->hour, dt->minute);
+		revers(0);
+	}
 }
 
 /*
@@ -1389,7 +1393,9 @@ int readdir(uint device, uint blocknum) {
 			putchar(' ');
 			printdatetime(&dt);
 			readdatetime(ent->mtime, &dt);
+			putchar(' ');
 			printdatetime(&dt);
+			putchar(' ');
 
 			keyblk = ent->keyptr[0] + 256U * ent->keyptr[1];
 			hdrblk = ent->hdrptr[0] + 256U * ent->hdrptr[1];
@@ -2053,7 +2059,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.87 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.88 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
