@@ -241,7 +241,7 @@ for a, v in args:
     elif a in ('-2', '--disk2'):
         file2 = v
 
-print("VEServer v0.9 alpha")
+print("VEServer v1.0")
 if pd25:
     print("ProDOS 2.5+ Clock Driver")
 else:
