@@ -1,4 +1,4 @@
-# GMail Apple II Email Gateway
+# Gmail Apple II Email Gateway
 
 ## Motivation
 
@@ -7,9 +7,7 @@ To connect an Apple IIGS to Gmail, allowing messages to be sent and received.
 I used Ewen Wannop (aka Speccie)'s SAM2 email client, running under GSOS 6.0.4.
 This should also work with GSOS 6.0.1.
 
-Speccie's website is here:
-
- - [speccie.uk](https://speccie.uk/software/)
+Speccie's website is [here](https://speccie.uk/software/)
 
 In order to communicate on today's Internet Transport Layer Security (TLS)
 is necessary.  Retro machines such as the Apple II series lack the processor
@@ -50,7 +48,7 @@ I use three separate packages on the Raspberry Pi, as follows:
 ### Incoming Messages
 
  - Message is sent to Gmail username@gmail.com
- - Fetchmail runs as a service on the Pi and monitors GMail using IMAP
+ - Fetchmail runs as a service on the Pi and monitors Gmail using IMAP
    IDLE.  As soon as a message shows up in the INBOX it downloads it
    and places it in `/var/mail/pi` (for username `pi`).  Fetchmail leaves
    the email on the Gmail server (this can be changed if desired.)
@@ -80,6 +78,28 @@ sudo apt install fetchmail
 ```
 
 ## Obtaining App Passwords from Google
+
+Google provides a mechanism to allow non-Google apps to connect to Gmail
+called *App Passwords*.
+
+Google's help page is [here](https://support.google.com/accounts/answer/185833?hl=en)
+
+In order to use the App Passwords method of authentication 2-Step Verification
+must be turned on for the account.  This is the general approach:
+
+ - In a web browser log in to the Gmail account and go to
+[Google Account](https://myaccount.google.com/).
+ - In the panel on the left, choose *Security*.
+ - Enable *2-Step Verification* for the account.
+ - The option *App Passwords* will now appear. Select this option.
+ - At the bottom, choose *Select app* and enter a descriptive name for
+   the app.
+ - Choose *Select Device* and choose the device.
+ - Click *Generate*.
+ - A 16 character App Password will be shown on the screen.  Write this value
+   down because you will need it later in the configuration.
+
+I generated two separate App Passwords - one for SMTPS and one for IMAPS.
 
 ## Configuring the Packages
 
