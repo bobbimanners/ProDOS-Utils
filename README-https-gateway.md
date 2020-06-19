@@ -23,7 +23,7 @@ usually be port 80, the normal HTTP port.  You may also want to add any
 top level domains you use to the list `tlds = [ ... ]`.  This currently just
 has the common ones (`.com`, `.net`, `.gov` etc.)
 
-If you are using port 80 you will have to run the scrip as root:
+If you are using port 80 you will have to run the script as root:
 
 ```
 sudo ./dehttps-proxy.py
@@ -41,7 +41,7 @@ your Raspberry Pi (or whatever system you are using to host the proxy.)
 
 Your request will go to port 80 (HTTP) on the server `pi` where it will be
 handled by `dehttps-proxy.py`.  The Python script adds `https:/` to the path
-that was passed in (`www.example.com/path/to/page` in this instance) and
+that was passed in (`/www.example.com/path/to/page` in this instance) and
 performs the HTTPS request.  The data that is obtained is returned to the
 original HTTP requester in plaintext.
 
@@ -57,4 +57,9 @@ added to Subsequent relative links with URLs such as `path/to/another_page`.
 This trick does not work for links to other websites.  If you click on a
 link `https:://foo.com` then you will have to edit it to read
 `http://pi/foo.com` and resubmit it in the browser.
+
+## Error Handling Sucks
+
+Error handling consists of catch the error and hope for the best.  This
+could be improved.
 
