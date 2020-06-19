@@ -14,7 +14,16 @@
 import http.server, socketserver
 import requests, sys
 
-PORT = 8000
+baseurl = ''
+
+PORT = 8001
+
+def isFullyQualified(name):
+    tlds = [ '.com', '.org', '.net', '.gov', '.ca', '.io', '.uk']
+    for t in tlds:
+        if name.endswith(t):
+            return True
+    return False
 
 class MyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
@@ -22,7 +31,12 @@ class MyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         http.server.SimpleHTTPRequestHandler.__init__(self, req, client_addr, server)
 
     def do_GET(self):
-        url = 'https:/' + self.path
+        global baseurl
+        if isFullyQualified(self.path):
+            url = 'https:/' + self.path
+            baseurl = url
+        else:
+            url = baseurl + self.path
         print('Getting {} ...'.format(url))
         err = False
         try:
@@ -36,6 +50,7 @@ class MyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(file.content)
 
+print("dehttps-proxy: listening on port {} ...".format(PORT))
 handler = MyHTTPRequestHandler
 httpd = socketserver.TCPServer(("", PORT), handler)
 httpd.serve_forever()
