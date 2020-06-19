@@ -16,10 +16,10 @@ import requests, sys
 
 baseurl = ''
 
-PORT = 8001
+PORT = 80
 
 def isFullyQualified(name):
-    tlds = [ '.com', '.org', '.net', '.gov', '.ca', '.io', '.uk']
+    tlds = [ '.com', '.org', '.net', '.gov', '.ca', '.uk', '.io', '.gs', '.click' ]
     for t in tlds:
         if name.endswith(t):
             return True
