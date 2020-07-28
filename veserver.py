@@ -81,13 +81,16 @@ def appendbyte(l, b, csin):
 def printinfo(drv, blknum, isWrite, isError, cs):
     global systemd, prevblk, prevdrv, prevop, prevcs, col
     if drv != prevdrv:
-       print('\n{}Drive {}{}'.format(BLU, drv, ENDC))
-       col = 0
+        if systemd:
+            print('\nDrive {}'.format(drv))
+        else:
+            print('\n{}Drive {}{}'.format(BLU, drv, ENDC))
+        col = 0
     e = '+' if ((blknum == prevblk) and (drv == prevdrv) and (isWrite == prevop) and (cs == prevcs)) else ' '
     e = 'X' if isError else e
     if systemd:
         c = 'W' if isWrite else 'R'
-        print(' {0}{1}{2:05d}{3}'.format(e, c, blknum, ENDC), end='', flush=True)
+        print(' {0}{1}{2:05d}'.format(e, c, blknum), end='', flush=True)
     else:
         c = RED if isWrite else GRN
         print('{0} {1}{2:05d}{3}'.format(c, e, blknum, ENDC), end='', flush=True)
