@@ -51,6 +51,7 @@
  * v0.87 Change the fix options so '-' is ask, 'y'/'n' are always/never.
  * v0.88 Show ProDOS 2.5 dates in inverse video (saves two columns!)
  * v0.89 Commented out free(usedlist) which was crashing for some reason.
+ * v0.90 Fixed parsing of dateopts[], caseopts[], fixopts[]
  */
 
 //#pragma debug 9
@@ -2061,7 +2062,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.89 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.90 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
@@ -2123,7 +2124,9 @@ q4:
 	} while (strchr("-luic^", l) == NULL);
 	if (l == '^')
 		goto q3;
-	if (l != '-')
+	if (l == '-')
+		caseopts[0] = '\0';
+    else
 		caseopts[0] = l;
 
 q5:
@@ -2134,7 +2137,9 @@ q5:
 	} while (strchr("-no^", d) == NULL);
 	if (d == '^')
 		goto q4;
-	if (d != '-')
+	if (d == '-')
+        dateopts[0] = '\0';
+    else
 		dateopts[0] = d;
 
 q6:	
@@ -2145,7 +2150,7 @@ q6:
 	} while (strchr("-yn^", f) == NULL);
 	if (f == '^')
 		goto q5;
-	fixopts[0] = ((f == '-') ? 'n' : f);
+	fixopts[0] = f;
 
 #ifdef FREELIST
 	if (w == 'v') {
