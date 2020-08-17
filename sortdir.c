@@ -2417,6 +2417,31 @@ void parseargs() {
 
 #endif
 
+/*
+ * Disconnect RAM disk /RAM
+ */
+void disconnect_ramdisk(void) {
+    uchar i, j;
+    uchar *devcnt = (uchar*)0xbf31; // Number of devices
+    uchar *devlst = (uchar*)0xbf32; // Disk device numbers
+    uint *s0d1 = (uint*)0xbf10; // s0d1 driver vector
+    uint *s3d2 = (uint*)0xbf26; // s3d2 driver vector
+    if (*s0d1 == *s3d2)
+        return;               // No /RAM connected
+    for (i = *devcnt; i > 0; --i) {
+        if ((devlst[i] == 0xbf) || (devlst[i] == 0xbb) ||
+            (devlst[i] == 0xb7) || (devlst[i] == 0xb3))
+            break;
+    }
+    if (i > 0) {
+        for (j = i; j < *devcnt; ++j) {
+          devlst[j] = devlst[j + 1];
+        }
+    }
+    *s3d2 = *s0d1;
+    --(*devcnt);
+}
+
 //int main(int argc, char *argv[]) {
 int main() {
 #ifdef CMDLINE
@@ -2433,6 +2458,8 @@ int main() {
 	if ((*pp & 0x30) != 0x30)
 		err(FATAL, err_128K);
 #endif
+
+    disconnect_ramdisk();
 
 	// Clear system bit map
 	for (pp = (uchar*)0xbf58; pp <= (uchar*)0xbf6f; ++pp)
