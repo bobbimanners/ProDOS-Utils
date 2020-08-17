@@ -52,6 +52,7 @@
  * v0.88 Show ProDOS 2.5 dates in inverse video (saves two columns!)
  * v0.89 Commented out free(usedlist) which was crashing for some reason.
  * v0.90 Fixed parsing of dateopts[], caseopts[], fixopts[]
+ * v0.91 Added disconnect_ramdisk()
  */
 
 //#pragma debug 9
@@ -2062,7 +2063,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.90 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.91 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
