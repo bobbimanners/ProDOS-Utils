@@ -53,6 +53,7 @@
  * v0.89 Commented out free(usedlist) which was crashing for some reason.
  * v0.90 Fixed parsing of dateopts[], caseopts[], fixopts[]
  * v0.91 Added disconnect_ramdisk()
+ * v0.92 Copied RAMdisk disconnection/reconnection code from EDIT.SYSTEM
  */
 
 //#pragma debug 9
@@ -61,20 +62,21 @@
 //#pragma memorymodel 0
 //#pragma optimize -1      /* Disable stack repair code */
 
-#include <stdio.h>
+#include <apple2enh.h>
+#include <conio.h>
 #include <ctype.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <unistd.h>
+#include <dio.h>
 #include <fcntl.h>
+#include <string.h>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <unistd.h>
 //#include <sys/stat.h>
 //#include <orca.h>
 //#include <gsos.h>
 //#include <prodos.h>
-#include <apple2enh.h>
-#include <dio.h>
-#include <conio.h> // For revers() and clrscr()
 
 #define CHECK		/* Perform additional integrity checking */
 #define SORT        /* Enable sorting code */
@@ -287,6 +289,11 @@ static const char err_usage[]    = "Usage error";
 static const char err_80col[]    = "Need 80 cols";
 static const char err_128K[]     = "Need 128K";
 
+// The following are used for reconnecting /RAM and /RAM3 on exit
+uint16_t s3d1vec;
+uint16_t s3d2vec;
+uint8_t  s3d1dev;
+uint8_t  s3d2dev;
 
 /* Prototypes */
 #ifdef AUXMEM
@@ -438,7 +445,7 @@ void hlinechar(char c) {
 }
 
 void confirm() {
-	puts("[Press any key to restart system]");
+	puts("[Press Any Key]");
 	getchar();
 }
 
@@ -456,7 +463,6 @@ void err(enum errtype severity, const char *fmt, ...) {
 	va_list v;
 	uint rv = 0;
 	putchar('\n');
-	rebootafterexit(); // Necessary if we were called from BASIC
 	if (severity == FINISHED) {
 		hline();
 		if (errcount == 0)
@@ -2063,7 +2069,7 @@ void interactive(void) {
 
 	revers(1);
 	hlinechar(' ');
-	fputs("S O R T D I R  v0.91 alpha                  Use ^ to return to previous question", stdout);
+	fputs("S O R T D I R  v0.92 alpha                  Use ^ to return to previous question", stdout);
 	hlinechar(' ');
 	revers(0);
 
@@ -2419,29 +2425,147 @@ void parseargs() {
 #endif
 
 /*
- * Disconnect RAM disk /RAM
+ * Check if there are files on a RAM disk
+ * dev - Device number of RAM disk
+ */
+void check_ramdisk(uint8_t dev) {
+  dhandle_t dio_hdl;
+  uint8_t c;
+  dio_hdl = dio_open(dev);
+  dio_read(dio_hdl, 2, buf);
+  dio_close(dio_hdl);
+  c = buf[0x25] + 256 * buf[0x26]; // File count
+  if (c > 0) {
+    fputs("\n/",stdout);
+    for (c = 0; c < (buf[0x04] & 0x0f); ++c)
+      putchar(buf[0x05 + c]);
+    printf(" is not empty.\n");
+    printf("[Q] to quit, and preserve RAMDisk\n");
+    putchar(0x07); // BELL
+    c = cgetc();
+    if ((c == 'Q') || (c == 'q'))
+      exit(0);
+  }
+}
+
+/*
+ * Disconnect RAM disks /RAM and/or /RAM3
+ * Note that both /RAM and /RAM3 may be active at the same time!!
  */
 void disconnect_ramdisk(void) {
-    uchar i, j;
-    uchar *devcnt = (uchar*)0xbf31; // Number of devices
-    uchar *devlst = (uchar*)0xbf32; // Disk device numbers
-    uint *s0d1 = (uint*)0xbf10; // s0d1 driver vector
-    uint *s3d2 = (uint*)0xbf26; // s3d2 driver vector
-    if (*s0d1 == *s3d2)
-        return;               // No /RAM connected
-    for (i = *devcnt; i > 0; --i) {
-        if ((devlst[i] == 0xbf) || (devlst[i] == 0xbb) ||
-            (devlst[i] == 0xb7) || (devlst[i] == 0xb3))
-            break;
+  uint8_t i, j;
+  uint8_t *devcnt = (uint8_t*)0xbf31; // Number of devices
+  uint8_t *devlst = (uint8_t*)0xbf32; // Disk device numbers
+  uint16_t *s0d1 = (uint16_t*)0xbf10; // s0d1 driver vector
+  uint16_t *s3d1 = (uint16_t*)0xbf16; // s3d1 driver vector
+  uint16_t *s3d2 = (uint16_t*)0xbf26; // s3d2 driver vector
+  if (*s0d1 != *s3d2)
+    check_ramdisk(3 + (2 - 1) * 8);     // s3d2
+  if (*s0d1 != *s3d1)
+    check_ramdisk(3 + (1 - 1) * 8);     // s3d1
+  if (*s0d1 == *s3d2) {
+    s3d2dev = 0;
+    goto s3d1;                        // No /RAM
+  }
+  for (i = 0; i <= *devcnt; ++i)
+    if ((devlst[i] & 0xf0) == 0xb0) {
+      s3d2dev = devlst[i];
+      for (j = i; j <= *devcnt; ++j)
+        devlst[j] = devlst[j + 1];
+      break;
     }
-    if (i > 0) {
-        for (j = i; j < *devcnt; ++j) {
-          devlst[j] = devlst[j + 1];
-        }
+  s3d2vec = *s3d2;
+  *s3d2 = *s0d1;
+  --(*devcnt);
+s3d1:
+  if (*s0d1 == *s3d1) {
+    s3d1dev = 0;
+    return;                           // No /RAM3
+  }
+  for (i = 0; i <= *devcnt; ++i)
+    if ((devlst[i] & 0xf0) == 0x30) {
+      s3d1dev = devlst[i];
+      for (j = i; j <= *devcnt; ++j)
+        devlst[j] = devlst[j + 1];
+      break;
     }
-    *s3d2 = *s0d1;
-    --(*devcnt);
+  s3d1vec = *s3d1;
+  *s3d1 = *s0d1;
+  --(*devcnt);
 }
+
+//
+// No point in reconnecting the RAMdisk(s) since we reboot on exit
+//
+
+/*
+ * Stub to invoke the slot 3 drive 1 device driver
+ */
+void s3d1driver(void) {
+  __asm__("jmp (%v)", s3d1vec);
+}
+
+/*
+ * Stub to invoke the slot 3 drive 2 device driver
+ */
+void s3d2driver(void) {
+  __asm__("jmp (%v)", s3d2vec);
+}
+
+/*
+ * Reconnect RAMdisk on exit
+ */
+#pragma optimize (off)
+void reconnect_ramdisk(void) {
+  uint8_t *devcnt = (uint8_t*)0xbf31; // Number of devices
+  uint8_t *devlst = (uint8_t*)0xbf32; // Disk device numbers
+  uint16_t *s3d1 = (uint16_t*)0xbf16; // s3d1 driver vector
+  uint16_t *s3d2 = (uint16_t*)0xbf26; // s3d2 driver vector
+  if (s3d2dev) {
+    *s3d2 = s3d2vec;
+    ++(*devcnt);
+    devlst[*devcnt] = s3d2dev;
+    __asm__("lda #$03");        // FORMAT request
+    __asm__("sta $42");
+    __asm__("lda #$b0");        // Unit number (s3d2)
+    __asm__("sta $43");
+    __asm__("lda #$00");        // LSB of buffer pointer
+    __asm__("sta $44");
+    __asm__("lda #$20");        // MSB of buffer pointer
+    __asm__("sta $45");
+    __asm__("lda $c08b");       // R/W enable LC, bank 1 on
+    __asm__("lda $c08b");
+    __asm__("jsr %v", s3d2driver); // Call driver
+    __asm__("bit $c082");       // ROM back online
+    __asm__("bcc %g", s3d1);    // If no error ...
+    putchar(0x07); // BELL
+    printf("Unable to reconnect S3D2");
+  }
+s3d1:
+  if (s3d1dev) {
+    *s3d1 = s3d1vec;
+    ++(*devcnt);
+    devlst[*devcnt] = s3d1dev;
+    __asm__("lda #$03");        // FORMAT request
+    __asm__("sta $42");
+    __asm__("lda #$30");        // Unit number (s3d1)
+    __asm__("sta $43");
+    __asm__("lda #$00");        // LSB of buffer pointer
+    __asm__("sta $44");
+    __asm__("lda #$20");        // MSB of buffer pointer
+    __asm__("sta $45");
+    __asm__("lda $c08b");       // R/W enable LC, bank 1 on
+    __asm__("lda $c08b");
+    __asm__("jsr %v", s3d1driver); // Call driver
+    __asm__("bit $c082");       // ROM back online
+    __asm__("bcc %g", done);    // If no error ...
+    putchar(0x07); // BELL
+    printf("Unable to reconnect S3D1");
+  }
+done:
+  return;
+}
+#pragma optimize (on)
 
 //int main(int argc, char *argv[]) {
 int main() {
@@ -2459,8 +2583,6 @@ int main() {
 	if ((*pp & 0x30) != 0x30)
 		err(FATAL, err_128K);
 #endif
-
-    disconnect_ramdisk();
 
 	// Clear system bit map
 	for (pp = (uchar*)0xbf58; pp <= (uchar*)0xbf6f; ++pp)
@@ -2499,6 +2621,14 @@ int main() {
 	dirblkbuf = (char*)malloc(sizeof(char) * BLKSZ);
 	//printf("\nHeap: %u %u\n", _heapmemavail(), _heapmaxavail());
 	maxfiles = _heapmaxavail() / sizeof(struct fileent);
+
+#ifdef AUXMEM
+    disconnect_ramdisk();
+#endif
+
+	//rebootafterexit(); // Necessary if we were called from BASIC
+
+    clrscr();
 	printf("[%u]\n", maxfiles);
 	filelist = (struct fileent*)malloc(sizeof(struct fileent) * maxfiles);
 
@@ -2591,6 +2721,7 @@ int main() {
 			writefreelist(dev);
 	}
 
+//  reconnect_ramdisk();  /// CRASHES
 	free(freelist);
 //	free(usedlist);  /// TODO This is crashing ATM
 #endif
