@@ -1,0 +1,5 @@
+ca65 nsc_ultrawarp.s
+ld65 nsc_ultrawarp.o -t none -o ns.clock.system\#ff0000
+cadius createvolume nsc_ultrawarp.po NSC.UW 140KB
+cadius addfile nsc_ultrawarp.po /NSC.UW ns.clock.system\#ff0000
+scp nsc_ultrawarp.po pi@pi-eth:~/virtual-1.po

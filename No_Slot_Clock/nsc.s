@@ -565,6 +565,7 @@ MyName: .byte   $0F,"NS.CLOCK.SYSTEM"           ; overwritten in the usual case
 ClockDrv:
         php
         sei
+        lda     $C00B                           ; Workaround for Ultrawarp bug
         lda     C8OFF
 CDRdSwL = * - 2                                 ; may modify to read INTCXROM state
 CDRdSwH = * - 1
@@ -597,27 +598,28 @@ CDUnlck = * - 1                                 ; may be patched to a different 
         bne     ubytlp
         ldx     #$08                            ; loop counter to read 8 bytes of clock data
 rbytlp: ldy     #$08                            ; loop counter to read 8 bits of clock data
-rbitlp: lda     SLOT3ROM+$04                    ; get data bit (NSC clocks reads off of A2)
+rbitlp: pha
+        lda     SLOT3ROM+$04                    ; get data bit (NSC clocks reads off of A2)
 CDRdClk = * - 1                                 ; may be patched for different loc
         ror     a                               ; put into carry
-        ror     INBUF-1,x                       ; and then rotate into relative input buffer loc
+        pla
+        ror     a                               ; then rotate into relative i/p buffer loc
         dey
         bne     rbitlp                          ; next bit
-        lda     INBUF-1,x                       ; now BCD->Binary
+        pha                                     ; now BCD->Binary
         lsr     a
         lsr     a
         lsr     a
         lsr     a
         tay
-        beq     notens                          ; no tens digit
-        lda     INBUF-1,x
+        pla
         and     #$0F
         clc                                     ; repeated addition for tens
-:       adc     #$0A
-        dey
+:       dey
+        bmi     notens                          ; no tens digit
+        adc     #$0A
         bne     :-
-        sta     INBUF-1,X                       ; update value to binary equiv
-notens: dex
+notens: sta     INBUF-1,X                       ; update value to binary equiv
         bne     rbytlp                          ; next byte
         ; put values into ProDOS time locations
         lda     INBUF+4
