@@ -1,9 +1,10 @@
-#`NS.CLOCK.SYSTEM`
-##No Slot Clock Driver for ProDOS
+# `NS.CLOCK.SYSTEM`
+
+## No Slot Clock Driver for ProDOS
 
 `nsc.s` is the original No Slot Clock driver written by SMT, which has been
-disassembled and commented by Github user mgcaret.  I took it from [here]
-(https://gist.github.com/mgcaret/ae2860c754fd029d2640107c4fe0bffd).
+disassembled and commented by Github user mgcaret.  I took it from
+[here](https://gist.github.com/mgcaret/ae2860c754fd029d2640107c4fe0bffd).
 
 The RM Ultrawarp Apple II accelerator card has some sort of bug in the
 banking of ROMs.  As a result of this problem, the original `NS.CLOCK.SYSTEM`
