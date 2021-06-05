@@ -1,6 +1,9 @@
-# `NS.CLOCK.SYSTEM`
+# `NS.CLKUW.SYSTEM`
 
 ## No Slot Clock Driver for ProDOS
+
+`NS.CLKUW.SYSTEM` is a version of the original No Slot Clock Driver
+`NS.CLOCK.SYSTEM`, modified to work with the RM Ultrawarp accelerator.
 
 `nsc.s` is the original No Slot Clock driver written by SMT, which has been
 disassembled and commented by Github user mgcaret.  I took it from
