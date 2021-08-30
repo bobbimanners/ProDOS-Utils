@@ -45,6 +45,7 @@ prevdrv = -1    # Last drive read/written
 prevop = -1     # Last operation (read or write)
 prevcs = -1     # Previous checksum
 col = 0         # Used to control logging printout
+skip = 0        # Bytes to skip over header
 
 #
 # Get date/time bytes
@@ -121,7 +122,7 @@ def read3(sock, addr, d):
     err = False
     try:
         with open(file, 'rb') as f:
-            b = blknum * BLKSZ
+            b = blknum * BLKSZ + skip
             f.seek(b)
             block = f.read(BLKSZ)
     except:
@@ -180,7 +181,7 @@ def write(sock, addr, d):
     if cs == d[517]:
         try:
             with open(file, 'r+b') as f:
-                b = blknum * BLKSZ
+                b = blknum * BLKSZ + skip
                 f.seek(b)
                 for i in range (0, BLKSZ):
                     f.write(bytes([d[i+5]]))
@@ -208,6 +209,18 @@ def write(sock, addr, d):
     b = sock.sendto(bytearray(l), addr)
     #print('Sent {} bytes to {}'.format(b, addr))
 
+# See if file is a 2MG and, if so, that it contains .PO image
+def check2MG(file):
+    try:
+        with open(file, 'rb') as f:
+            hdr = f.read(16)
+    except:
+        return
+    if (hdr[0] == 0x32) and (hdr[1] == 0x49) and (hdr[2] == 0x4d) and (hdr[3] == 0x47):
+        print('** ' + file + ' is a 2MG file **')
+        if hdr[0x0c] != 0x01:
+            print('** Warning NOT in ProDOS order **')
+        skip = 64
 
 def usage():
     print('usage: veserver [OPTION]...')
@@ -252,6 +265,9 @@ else:
 
 print("Disk 1: {}".format(file1))
 print("Disk 2: {}".format(file2))
+
+check2MG(file1)
+check2MG(file2)
 
 with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as s:
     s.bind((IP, PORT))
