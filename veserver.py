@@ -45,7 +45,8 @@ prevdrv = -1    # Last drive read/written
 prevop = -1     # Last operation (read or write)
 prevcs = -1     # Previous checksum
 col = 0         # Used to control logging printout
-skip = 0        # Bytes to skip over header
+skip1 = 0       # Bytes to skip over header (Drive 1)
+skip2 = 0       # Bytes to skip over header (Drive 2)
 
 #
 # Get date/time bytes
@@ -108,14 +109,16 @@ def printinfo(drv, blknum, isWrite, isError, cs):
 # Read block with date/time update
 #
 def read3(sock, addr, d):
-    global packet
+    global packet, skip
 
     if d[1] == 0x03:
        file = file1
        drv = 1
+       skip = skip1
     else:
        file = file2
        drv = 2
+       skip = skip2
 
     blknum = d[2] + 256 * d[3]
 
@@ -167,9 +170,11 @@ def write(sock, addr, d):
     if d[1] == 0x02:
        file = file1
        drv = 1
+       skip = skip1
     else:
        file = file2
        drv = 2
+       skip = skip2
 
     cs = 0
     for i in range (0, BLKSZ):
@@ -209,18 +214,22 @@ def write(sock, addr, d):
     b = sock.sendto(bytearray(l), addr)
     #print('Sent {} bytes to {}'.format(b, addr))
 
+#
 # See if file is a 2MG and, if so, that it contains .PO image
-def check2MG(file):
+# Returns bytes to skip over header
+#
+def check2MG(filename):
     try:
-        with open(file, 'rb') as f:
+        with open(filename, 'rb') as f:
             hdr = f.read(16)
     except:
-        return
+        return 0
     if (hdr[0] == 0x32) and (hdr[1] == 0x49) and (hdr[2] == 0x4d) and (hdr[3] == 0x47):
-        print('** ' + file + ' is a 2MG file **')
+        print('** ' + filename + ' is a 2MG file **')
         if hdr[0x0c] != 0x01:
             print('** Warning NOT in ProDOS order **')
-        skip = 64
+        return 64
+    return 0
 
 def usage():
     print('usage: veserver [OPTION]...')
@@ -264,10 +273,9 @@ else:
     print("Legacy ProDOS Clock Driver")
 
 print("Disk 1: {}".format(file1))
+skip1 = check2MG(file1)
 print("Disk 2: {}".format(file2))
-
-check2MG(file1)
-check2MG(file2)
+skip2 = check2MG(file2)
 
 with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as s:
     s.bind((IP, PORT))
