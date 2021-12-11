@@ -61,8 +61,8 @@ def getDateTimeBytes():
         word2 = 4096 * (t.tm_mon + 1) + t.tm_year
     else:
         # Legacy ProDOS <2.5
-        word1 = t.tm_mday + 32 * t.tm_mon + 512 * (t.tm_year - 2000)
-        word2 = t.tm_min + 256 * t.tm_hour
+        word1 = t.tm_min + 256 * t.tm_hour
+        word2 = t.tm_mday + 32 * t.tm_mon + 512 * (t.tm_year - 2000)
     dt.append(word1 & 0xff)
     dt.append((word1 & 0xff00) >> 8)
     dt.append(word2 & 0xff)
