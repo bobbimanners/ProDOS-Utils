@@ -172,7 +172,7 @@ def read3(dataport, addr, d):
 def write(dataport, addr, d):
     global packet
 
-    d = dataport.recvmore(BLKSZ + 4)
+    d = dataport.recvmore(d, BLKSZ + 4)
 
     if d[1] == 0x02:
        file = file1
