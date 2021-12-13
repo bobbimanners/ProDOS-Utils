@@ -240,13 +240,19 @@ def check2MG(filename):
     return 0
 
 class DataPort:
+    class Timeout(Exception):
+        pass
+
     def __init__(self, serial_port, baud_rate):
         if serial_port:
             import serial  # Import locally to avoid hard dependency
+
+            # Use a short timeout so that the protocol resets on desync. This
+            # tends to happen if you reboot the client.
             self.impl = serial.Serial(
                 port=serial_port, baudrate=baud_rate, bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE,
-                xonxoff=False, rtscts=True, dsrdtr=True, exclusive=None
+                timeout=1, xonxoff=False, rtscts=True, dsrdtr=True
             )
             self.stream = True
             print("veserver - listening on serial port {}".format(serial_port))
@@ -265,7 +271,11 @@ class DataPort:
 
     def recvfrom(self, required_bytes):
         if self.stream:
-            return self.impl.read(required_bytes), None
+            data = self.impl.read(required_bytes)
+            if len(data) < required_bytes:
+                raise DataPort.Timeout
+            else:
+                return data, None
         else:
             return self.recvfrom(1024)
 
@@ -335,11 +345,13 @@ skip2 = check2MG(file2)
 
 with DataPort(serial_port, baud_rate) as dataport:
     while True:
-        data, address = dataport.recvfrom(2)
-        # print('Received {} bytes from {}'.format(len(data), address))
-        if (data[0] == 0xc5):
-            if (data[1] == 0x03) or (data[1] == 0x05):
-                read3(dataport, address, data)
-            elif (data[1] == 0x02) or (data[1] == 0x04):
-                write(dataport, address, data)
-
+        try:
+            data, address = dataport.recvfrom(2)
+            # print('Received {} bytes from {}'.format(len(data), address))
+            if (data[0] == 0xc5):
+                if (data[1] == 0x03) or (data[1] == 0x05):
+                    read3(dataport, address, data)
+                elif (data[1] == 0x02) or (data[1] == 0x04):
+                    write(dataport, address, data)
+        except DataPort.Timeout:
+            pass
