@@ -277,7 +277,7 @@ class DataPort:
             else:
                 return data, None
         else:
-            return self.recvfrom(1024)
+            return self.impl.recvfrom(1024)
 
     def recvmore(self, data, remaining_bytes):
         if self.stream:
