@@ -13,6 +13,8 @@
 pd25 = False   # Default to old-style date/time --prodos25 to use new format
 file1 = "/home/pi/virtual-1.po"  # Disk image drive 1 --disk1 to override
 file2 = "/home/pi/virtual-2.po"  # Disk image drive 2 --disk2 to override
+serial_port = None  # Serial port to use instead of ethernet
+baud_rate = 115200  # Baud rate for serial mode
 
 ###########################################################################
 
@@ -108,8 +110,10 @@ def printinfo(drv, blknum, isWrite, isError, cs):
 #
 # Read block with date/time update
 #
-def read3(sock, addr, d):
-    global packet, skip
+def read3(dataport, addr, d):
+    global packet
+
+    d = dataport.recvmore(d, 3)
 
     if d[1] == 0x03:
        file = file1
@@ -133,8 +137,9 @@ def read3(sock, addr, d):
 
     dt = getDateTimeBytes()
     l = []
-    appendbyte(l, packet & 0xff, 0)  # Packet number
-    packet += 1
+    if not serial_port:
+        appendbyte(l, packet & 0xff, 0)  # Packet number
+        packet += 1
     cs = appendbyte(l, 0xc5, 0)   # "E"
     cs = appendbyte(l, d[1], cs)  # 0x03 or 0x05
     cs = appendbyte(l, d[2], cs)  # Block num LSB
@@ -158,14 +163,16 @@ def read3(sock, addr, d):
 
     printinfo(drv, blknum, False, err, cs)
 
-    b = sock.sendto(bytearray(l), addr)
+    b = dataport.sendto(bytearray(l), addr)
     #print('Sent {} bytes to {}'.format(b, addr))
 
 #
 # Write block
 #
-def write(sock, addr, d):
+def write(dataport, addr, d):
     global packet
+
+    d = dataport.recvmore(d, BLKSZ + 4)
 
     if d[1] == 0x02:
        file = file1
@@ -201,8 +208,9 @@ def write(sock, addr, d):
         cs = d[517] + 1
 
     l = []
-    appendbyte(l, packet & 0xff, 0)  # Packet number
-    packet += 1
+    if not serial_port:
+        appendbyte(l, packet & 0xff, 0)  # Packet number
+        packet += 1
     appendbyte(l, 0xc5, 0)     # "E"
     appendbyte(l, d[1], 0)     # 0x02 or 0x04
     appendbyte(l, d[2], 0)     # Block num LSB
@@ -211,7 +219,7 @@ def write(sock, addr, d):
 
     printinfo(drv, blknum, True, err, cs)
 
-    b = sock.sendto(bytearray(l), addr)
+    b = dataport.sendto(bytearray(l), addr)
     #print('Sent {} bytes to {}'.format(b, addr))
 
 #
@@ -231,12 +239,66 @@ def check2MG(filename):
         return 64
     return 0
 
+class DataPort:
+    class Timeout(Exception):
+        pass
+
+    def __init__(self, serial_port, baud_rate):
+        if serial_port:
+            import serial  # Import locally to avoid hard dependency
+
+            # Use a short timeout so that the protocol resets on desync. This
+            # tends to happen if you reboot the client.
+            self.impl = serial.Serial(
+                port=serial_port, baudrate=baud_rate, bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE,
+                timeout=1, xonxoff=False, rtscts=True, dsrdtr=True
+            )
+            self.stream = True
+            print("veserver - listening on serial port {}".format(serial_port))
+        else:
+            self.impl = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+            self.impl.bind((IP, PORT))
+            self.stream = False
+            print("veserver - listening on UDP port {}".format(PORT))
+
+    def __enter__(self):
+        self.impl.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.impl.__exit__(exc_type, exc_val, exc_tb)
+
+    def recvfrom(self, required_bytes):
+        if self.stream:
+            data = self.impl.read(required_bytes)
+            if len(data) < required_bytes:
+                raise DataPort.Timeout
+            else:
+                return data, None
+        else:
+            return self.impl.recvfrom(1024)
+
+    def recvmore(self, data, remaining_bytes):
+        if self.stream:
+            return data + self.impl.read(remaining_bytes)
+        else:
+            return data
+
+    def sendto(self, data, addr):
+        if self.stream:
+            return self.impl.write(data)
+        else:
+            return self.impl.sendto(data, addr)
+
 def usage():
     print('usage: veserver [OPTION]...')
     print('  -h, --help               Show this help');
     print('  -p, --prodos25           Use ProDOS 2.5 date/time format');
     print('  -1 FNAME, --disk1=FNAME  Specify filename for disk 1 image');
     print('  -2 FNAME, --disk2=FNAME  Specify filename for disk 2 image');
+    print('  -s PORT, --serial=PORT   Use a serial link instead of ethernet');
+    print('  -b BAUD, --baud=BAUD     Baud rate for serial link');
 
 #
 # Entry point
@@ -246,8 +308,8 @@ def usage():
 if 'INVOCATION_ID' in os.environ:
     systemd = True
 
-short_opts = "hp1:2:"
-long_opts = ["help", "prodos25", "disk1=", "disk2="]
+short_opts = "hp1:2:s:b:"
+long_opts = ["help", "prodos25", "disk1=", "disk2=", "serial=", "baud="]
 try:
     args, vals = getopt.getopt(sys.argv[1:], short_opts, long_opts)
 except getopt.error as e:
@@ -265,6 +327,10 @@ for a, v in args:
         file1 = v
     elif a in ('-2', '--disk2'):
         file2 = v
+    elif a in ('-s', '--serial'):
+        serial_port = v
+    elif a in ('-b', '--baud'):
+        baud_rate = int(v)
 
 print("VEServer v1.0")
 if pd25:
@@ -277,16 +343,15 @@ skip1 = check2MG(file1)
 print("Disk 2: {}".format(file2))
 skip2 = check2MG(file2)
 
-with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as s:
-    s.bind((IP, PORT))
-    print("veserver - listening on UDP port {}".format(PORT))
-
+with DataPort(serial_port, baud_rate) as dataport:
     while True:
-        data, address = s.recvfrom(1024)
-        #print('Received {} bytes from {}'.format(len(data), address))
-        if (data[0] == 0xc5):
-            if (data[1] == 0x03) or (data[1] == 0x05):
-                read3(s, address, data)
-            elif (data[1] == 0x02) or (data[1] == 0x04):
-                write(s, address, data)
-
+        try:
+            data, address = dataport.recvfrom(2)
+            # print('Received {} bytes from {}'.format(len(data), address))
+            if (data[0] == 0xc5):
+                if (data[1] == 0x03) or (data[1] == 0x05):
+                    read3(dataport, address, data)
+                elif (data[1] == 0x02) or (data[1] == 0x04):
+                    write(dataport, address, data)
+        except DataPort.Timeout:
+            pass
