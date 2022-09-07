@@ -332,7 +332,7 @@ for a, v in args:
     elif a in ('-b', '--baud'):
         baud_rate = int(v)
 
-print("VEServer v1.0")
+print("VEServer v1.1")
 if pd25:
     print("ProDOS 2.5+ Clock Driver")
 else:
