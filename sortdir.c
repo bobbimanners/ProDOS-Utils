@@ -310,10 +310,10 @@ void err(enum errtype severity, const char *fmt, ...);
 void flushall(void);
 int  readdiskblock(uchar device, uint blocknum, char *buf);
 int  writediskblock(uchar device, uint blocknum, char *buf);
-void fixcase(char *in, char *out, uchar minvers, uchar vers, uchar len);
-void lowercase(char *p, uchar len, uchar *minvers, uchar *vers);
-void uppercase(char *p, uchar len, uchar *minvers, uchar *vers);
-void initialcase(uchar mode, char *p, uchar len, uchar *minvers, uchar *vers);
+void fixcase(char *in, char *out, uchar vers, uchar minvers, uchar len);
+void lowercase(char *p, uchar len, uchar *vers, uchar *minvers);
+void uppercase(char *p, uchar len, uchar *vers, uchar *minvers);
+void initialcase(uchar mode, char *p, uchar len, uchar *vers, uchar *minvers);
 void firstblk(char *dirname, uchar *device, uint *block);
 void readdatetime(uchar time[4], struct datetime *dt);
 void writedatetime(struct datetime *dt, uchar time[4]);
@@ -570,25 +570,25 @@ int writediskblock(uchar device, uint blocknum, char *buf) {
  * as a bitmap representing which characters are upper and which are
  * lowercase
  */
-void fixcase(char *in, char *out, uchar minvers, uchar vers, uchar len) {
+void fixcase(char *in, char *out, uchar vers, uchar minvers, uchar len) {
 	uint i;
 	uchar idx = 0;
-	if (!(vers & 0x80)) {
+	if (!(minvers & 0x80)) {
 		for (idx = 0; idx < NMLEN; ++idx)
 			out[idx] = in[idx];
 		out[len] = '\0';
 		return;
 	}
-	vers <<= 1;
+	minvers <<= 1;
 	for (i = 0; i < 7; ++i) {
-		out[idx] = ((vers & 0x80) ? tolower(in[idx]) : in[idx]);
-		++idx;
-		vers <<= 1;
-	}
-	for (i = 0; i < 8; ++i) {
 		out[idx] = ((minvers & 0x80) ? tolower(in[idx]) : in[idx]);
 		++idx;
 		minvers <<= 1;
+	}
+	for (i = 0; i < 8; ++i) {
+		out[idx] = ((vers & 0x80) ? tolower(in[idx]) : in[idx]);
+		++idx;
+		vers <<= 1;
 	}
 	out[len] = '\0';
 }
@@ -597,20 +597,20 @@ void fixcase(char *in, char *out, uchar minvers, uchar vers, uchar len) {
  * Convert filename pointed to by p into lower case (which is recorded
  * as a bitmap in the vers and minvers fields.
  */
-void lowercase(char *p, uchar len, uchar *minvers, uchar *vers) {
+void lowercase(char *p, uchar len, uchar *vers, uchar *minvers) {
 	uint i;
 	uchar idx = 0;
-	*vers = 0x01;
-	*minvers = 0x00;
+	*vers = 0x00;
+	*minvers = 0x01;
 	for (i = 0; i < 7; ++i) {
-		*vers <<= 1;
-		if ((idx < len) && isalpha(p[idx++]))
-			*vers |= 0x01;
-	}
-	for (i = 0; i < 8; ++i) {
 		*minvers <<= 1;
 		if ((idx < len) && isalpha(p[idx++]))
 			*minvers |= 0x01;
+	}
+	for (i = 0; i < 8; ++i) {
+		*vers <<= 1;
+		if ((idx < len) && isalpha(p[idx++]))
+			*vers |= 0x01;
 	}
 }
 
@@ -618,7 +618,7 @@ void lowercase(char *p, uchar len, uchar *minvers, uchar *vers) {
  * Convert filename pointed to by p into upper case (which is recorded
  * as a bitmap in the vers and minvers fields.
  */
-void uppercase(char*, uchar, uchar *minvers, uchar *vers) {
+void uppercase(char*, uchar, uchar *vers, uchar *minvers) {
 	*vers = 0x00;
 	*minvers = 0x00;
 }
@@ -629,27 +629,27 @@ void uppercase(char*, uchar, uchar *minvers, uchar *vers) {
  * If mode = 0 then just uppercase the initial char ("Read.me")
  * otherwise camel-case the name ("Read.Me")
  */
-void initialcase(uchar mode, char *p, uchar len, uchar *minvers, uchar *vers) {
+void initialcase(uchar mode, char *p, uchar len, uchar *vers, uchar *minvers) {
 	uint i;
 	uchar idx = 0;
 	uchar capsflag = 1;
-	*vers = 0x01;
-	*minvers = 0x00;
+	*vers = 0x00;
+	*minvers = 0x01;
 	for (i = 0; i < 7; ++i) {
-		*vers <<= 1;
+		*minvers <<= 1;
 		if ((idx < len) && isalpha(p[idx++]))
 			if (!capsflag)
-				*vers |= 0x01;
+				*minvers |= 0x01;
 		if ((mode == 1) && !isalpha(p[idx-1]))
 			capsflag = 1;
 		else
 			capsflag = 0;
 	}
 	for (i = 0; i < 8; ++i) {
-		*minvers <<= 1;
+		*vers <<= 1;
 		if ((idx < len) && isalpha(p[idx++]))
 			if (!capsflag)
-				*minvers |= 0x01;
+				*vers |= 0x01;
 		if ((mode == 1) && !isalpha(p[idx-1]))
 			capsflag = 1;
 		else
