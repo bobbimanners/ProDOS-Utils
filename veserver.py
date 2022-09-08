@@ -11,8 +11,8 @@
 ###########################################################################
 
 pd25 = False   # Default to old-style date/time --prodos25 to use new format
-file1 = "/home/pi/virtual-1.po"  # Disk image drive 1 --disk1 to override
-file2 = "/home/pi/virtual-2.po"  # Disk image drive 2 --disk2 to override
+file1 = "/home/bobbi/virtual-1.po"  # Disk image drive 1 --disk1 to override
+file2 = "/home/bobbi/virtual-2.po"  # Disk image drive 2 --disk2 to override
 serial_port = None  # Serial port to use instead of ethernet
 baud_rate = 115200  # Baud rate for serial mode
 
@@ -108,9 +108,35 @@ def printinfo(drv, blknum, isWrite, isError, cs):
     prevcs = cs
 
 #
+# Augment filename by adding IP
+# If filename is basename.ext and IP is 192.168.2.3
+# will return basename-192.168.2.3.ext
+#
+def augment_filename(filename, ip):
+    idx = filename.rfind(".")
+    basename = filename[0 : idx]
+    ext = filename[idx:]
+    return basename + "-" + ip + ext
+
+#
+# See if augmented filename exists, if so return that name
+# otherwise return the unaugmented name
+#
+def select_filename(filename, ip):
+    if serial_port:
+        return filename
+    filename_with_ip = augment_filename(filename, ip)
+    try:
+        with open(filename_with_ip, "rb"):
+            pass
+    except:
+        return filename
+    return filename_with_ip
+
+#
 # Read block with date/time update
 #
-def read3(dataport, addr, d):
+def read3(dataport, addr, ip, d):
     global packet
 
     d = dataport.recvmore(d, 3)
@@ -123,6 +149,8 @@ def read3(dataport, addr, d):
        file = file2
        drv = 2
        skip = skip2
+
+    file = select_filename(file, ip)
 
     blknum = d[2] + 256 * d[3]
 
@@ -164,12 +192,12 @@ def read3(dataport, addr, d):
     printinfo(drv, blknum, False, err, cs)
 
     b = dataport.sendto(bytearray(l), addr)
-    #print('Sent {} bytes to {}'.format(b, addr))
+    #print('Sent {} bytes to {}'.format(b, ip))
 
 #
 # Write block
 #
-def write(dataport, addr, d):
+def write(dataport, addr, ip, d):
     global packet
 
     d = dataport.recvmore(d, BLKSZ + 4)
@@ -183,6 +211,8 @@ def write(dataport, addr, d):
        drv = 2
        skip = skip2
 
+    file = select_filename(file, ip)
+
     cs = 0
     for i in range (0, BLKSZ):
          cs ^= d[i+5]
@@ -192,7 +222,7 @@ def write(dataport, addr, d):
     err = False
     if cs == d[517]:
         try:
-            with open(file, 'r+b') as f:
+            with open(file, 'rb') as f:
                 b = blknum * BLKSZ + skip
                 f.seek(b)
                 for i in range (0, BLKSZ):
@@ -220,7 +250,7 @@ def write(dataport, addr, d):
     printinfo(drv, blknum, True, err, cs)
 
     b = dataport.sendto(bytearray(l), addr)
-    #print('Sent {} bytes to {}'.format(b, addr))
+    #print('Sent {} bytes to {}'.format(b, ip))
 
 #
 # See if file is a 2MG and, if so, that it contains .PO image
@@ -332,7 +362,7 @@ for a, v in args:
     elif a in ('-b', '--baud'):
         baud_rate = int(v)
 
-print("VEServer v1.1")
+print("VEServer v1.2")
 if pd25:
     print("ProDOS 2.5+ Clock Driver")
 else:
@@ -347,11 +377,13 @@ with DataPort(serial_port, baud_rate) as dataport:
     while True:
         try:
             data, address = dataport.recvfrom(2)
-            # print('Received {} bytes from {}'.format(len(data), address))
+            ip = address[0]
+            ip = ip[ip.rfind(":")+1:]
+            #print('Received {} bytes from {}'.format(len(data), ip))
             if (data[0] == 0xc5):
                 if (data[1] == 0x03) or (data[1] == 0x05):
-                    read3(dataport, address, data)
+                    read3(dataport, address, ip, data)
                 elif (data[1] == 0x02) or (data[1] == 0x04):
-                    write(dataport, address, data)
+                    write(dataport, address, ip, data)
         except DataPort.Timeout:
             pass
