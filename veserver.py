@@ -82,13 +82,13 @@ def appendbyte(l, b, csin):
 #
 # Pretty print info about each request
 #
-def printinfo(drv, blknum, isWrite, isError, cs):
+def printinfo(drv, blknum, isWrite, isError, cs, filename):
     global systemd, prevblk, prevdrv, prevop, prevcs, col
     if drv != prevdrv:
         if systemd:
-            print('\nDrive {}'.format(drv))
+            print('\nDrive {} ({})'.format(drv, filename))
         else:
-            print('\n{}Drive {}{}'.format(BLU, drv, ENDC))
+            print('\n{}Drive {} ({}){}'.format(BLU, drv, filename, ENDC))
         col = 0
     e = '+' if ((blknum == prevblk) and (drv == prevdrv) and (isWrite == prevop) and (cs == prevcs)) else ' '
     e = 'X' if isError else e
@@ -142,21 +142,21 @@ def read3(dataport, addr, ip, d):
     d = dataport.recvmore(d, 3)
 
     if d[1] == 0x03:
-       file = file1
+       filename = file1
        drv = 1
        skip = skip1
     else:
-       file = file2
+       filename = file2
        drv = 2
        skip = skip2
 
-    file = select_filename(file, ip)
+    filename = select_filename(filename, ip)
 
     blknum = d[2] + 256 * d[3]
 
     err = False
     try:
-        with open(file, 'rb') as f:
+        with open(filename, 'rb') as f:
             b = blknum * BLKSZ + skip
             f.seek(b)
             block = f.read(BLKSZ)
@@ -189,7 +189,7 @@ def read3(dataport, addr, ip, d):
 
     appendbyte(l, cs, cs)         # Checksum for datablock
 
-    printinfo(drv, blknum, False, err, cs)
+    printinfo(drv, blknum, False, err, cs, filename)
 
     b = dataport.sendto(bytearray(l), addr)
     #print('Sent {} bytes to {}'.format(b, ip))
@@ -203,15 +203,15 @@ def write(dataport, addr, ip, d):
     d = dataport.recvmore(d, BLKSZ + 4)
 
     if d[1] == 0x02:
-       file = file1
+       filename = file1
        drv = 1
        skip = skip1
     else:
-       file = file2
+       filename = file2
        drv = 2
        skip = skip2
 
-    file = select_filename(file, ip)
+    filename = select_filename(filename, ip)
 
     cs = 0
     for i in range (0, BLKSZ):
@@ -247,7 +247,7 @@ def write(dataport, addr, ip, d):
     appendbyte(l, d[3], 0)     # Block num MSB
     appendbyte(l, cs, 0)       # Checksum of datablock
 
-    printinfo(drv, blknum, True, err, cs)
+    printinfo(drv, blknum, True, err, cs, filename)
 
     b = dataport.sendto(bytearray(l), addr)
     #print('Sent {} bytes to {}'.format(b, ip))
@@ -387,3 +387,5 @@ with DataPort(serial_port, baud_rate) as dataport:
                     write(dataport, address, ip, data)
         except DataPort.Timeout:
             pass
+
+
