@@ -29,7 +29,8 @@ VEServer uses IPv6 and listens on UDP port 6502 for incoming datagrams from
 
 Two simulated drives are supported, backed up by disk files in `.po` "ProDOS
 Order".  These may be 143K or 800K floppy disk images or any volume up to the
-ProDOS limit of 32MB.
+ProDOS limit of 32MB.  `.2mg` container files are also supported, provided
+the volume within the `.2mg` file is in ProDOS order.
 
 VEServer can provide system date and time in a similar manner to an Apple II
 clock such as Thunderclock or No Slot Clock.  Because the legacy ProDOS date
