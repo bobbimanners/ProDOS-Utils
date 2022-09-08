@@ -46,8 +46,8 @@ form and a verbose form:
  - `-p`, `--prodos25` - Use new ProDOS 2.5 date/time format (see above.)
  - `-1 FNAME`, `--disk1=FNAME` - Specify filename for disk 1 image.
  - `-2 FNAME`, `--disk2=FNAME` - Specify filename for disk 1 image.
- - '-s', '--serial' - Use RS232 serial rather than Ethernet.
- - '-b nnnnn', '--baud=nnnnn' - Specify baud rate when using serial connection.
+ - `-s`, `--serial` - Use RS232 serial rather than Ethernet.
+ - `-b nnnnn`, `--baud=nnnnn` - Specify baud rate when using serial connection.
 
 If the `--disk1=FNAME` or `--disk2=FNAME` options are not specified, VEServer
 will fall back to using the default values hard coded at the top of the
