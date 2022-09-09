@@ -127,7 +127,7 @@ def select_filename(filename, ip):
         return filename
     filename_with_ip = augment_filename(filename, ip)
     try:
-        with open(filename_with_ip, "rb"):
+        with open(filename_with_ip, 'r+b'):
             pass
     except:
         return filename
@@ -156,7 +156,7 @@ def read3(dataport, addr, ip, d):
 
     err = False
     try:
-        with open(filename, 'rb') as f:
+        with open(filename, 'r+b') as f:
             b = blknum * BLKSZ + skip
             f.seek(b)
             block = f.read(BLKSZ)
@@ -222,7 +222,7 @@ def write(dataport, addr, ip, d):
     err = False
     if cs == d[517]:
         try:
-            with open(file, 'rb') as f:
+            with open(filename, 'r+b') as f:
                 b = blknum * BLKSZ + skip
                 f.seek(b)
                 for i in range (0, BLKSZ):
@@ -258,7 +258,7 @@ def write(dataport, addr, ip, d):
 #
 def check2MG(filename):
     try:
-        with open(filename, 'rb') as f:
+        with open(filename, 'r+b') as f:
             hdr = f.read(16)
     except:
         return 0
@@ -362,7 +362,7 @@ for a, v in args:
     elif a in ('-b', '--baud'):
         baud_rate = int(v)
 
-print("VEServer v1.2")
+print("VEServer v1.3")
 if pd25:
     print("ProDOS 2.5+ Clock Driver")
 else:
