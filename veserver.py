@@ -122,9 +122,11 @@ def augment_filename(filename, ip):
 # See if augmented filename exists, if so return that name
 # otherwise return the unaugmented name
 #
-def select_filename(filename, ip):
+def select_filename(filename, addr):
     if serial_port:
         return filename
+    ip = addr[0]
+    ip = ip[ip.rfind(":")+1:]
     filename_with_ip = augment_filename(filename, ip)
     try:
         with open(filename_with_ip, 'r+b'):
@@ -136,7 +138,7 @@ def select_filename(filename, ip):
 #
 # Read block with date/time update
 #
-def read3(dataport, addr, ip, d):
+def read3(dataport, addr, d):
     global packet
 
     d = dataport.recvmore(d, 3)
@@ -150,7 +152,7 @@ def read3(dataport, addr, ip, d):
        drv = 2
        skip = skip2
 
-    filename = select_filename(filename, ip)
+    filename = select_filename(filename, addr)
 
     blknum = d[2] + 256 * d[3]
 
@@ -192,12 +194,12 @@ def read3(dataport, addr, ip, d):
     printinfo(drv, blknum, False, err, cs, filename)
 
     b = dataport.sendto(bytearray(l), addr)
-    #print('Sent {} bytes to {}'.format(b, ip))
+    #print('Sent {} bytes to {}'.format(b, addr))
 
 #
 # Write block
 #
-def write(dataport, addr, ip, d):
+def write(dataport, addr, d):
     global packet
 
     d = dataport.recvmore(d, BLKSZ + 4)
@@ -211,7 +213,7 @@ def write(dataport, addr, ip, d):
        drv = 2
        skip = skip2
 
-    filename = select_filename(filename, ip)
+    filename = select_filename(filename, addr)
 
     cs = 0
     for i in range (0, BLKSZ):
@@ -250,7 +252,7 @@ def write(dataport, addr, ip, d):
     printinfo(drv, blknum, True, err, cs, filename)
 
     b = dataport.sendto(bytearray(l), addr)
-    #print('Sent {} bytes to {}'.format(b, ip))
+    #print('Sent {} bytes to {}'.format(b, addr))
 
 #
 # See if file is a 2MG and, if so, that it contains .PO image
@@ -377,14 +379,12 @@ with DataPort(serial_port, baud_rate) as dataport:
     while True:
         try:
             data, address = dataport.recvfrom(2)
-            ip = address[0]
-            ip = ip[ip.rfind(":")+1:]
-            #print('Received {} bytes from {}'.format(len(data), ip))
+            #print('Received {} bytes from {}'.format(len(data), address))
             if (data[0] == 0xc5):
                 if (data[1] == 0x03) or (data[1] == 0x05):
-                    read3(dataport, address, ip, data)
+                    read3(dataport, address, data)
                 elif (data[1] == 0x02) or (data[1] == 0x04):
-                    write(dataport, address, ip, data)
+                    write(dataport, address, data)
         except DataPort.Timeout:
             pass
 
